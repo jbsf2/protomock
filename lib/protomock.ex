@@ -35,19 +35,19 @@ defmodule ProtoMock do
   end
 
   @spec expect(t(), function(), function()) :: t()
-  def expect(proto_mock, mocked_function, impl) do
-    :ok = GenServer.call(proto_mock.name, {:expect, mocked_function, impl})
-    proto_mock
+  def expect(protomock, mocked_function, impl) do
+    :ok = GenServer.call(protomock.name, {:expect, mocked_function, impl})
+    protomock
   end
 
-  @spec respond(t(), function(), [any()]) :: t()
-  def respond(proto_mock, mocked_function, args \\ []) do
-    GenServer.call(proto_mock.name, {:respond, mocked_function, args})
+  @spec invoke(t(), function(), [any()]) :: t()
+  def invoke(protomock, mocked_function, args \\ []) do
+    GenServer.call(protomock.name, {:invoke, mocked_function, [protomock | args]})
   end
 
   @spec verify!(t()) :: t()
-  def verify!(proto_mock) do
-    state = GenServer.call(proto_mock.name, :state)
+  def verify!(protomock) do
+    state = GenServer.call(protomock.name, :state)
     expectations = state.expectations
     invocations = state.invocations
 
@@ -78,7 +78,7 @@ defmodule ProtoMock do
   end
 
   @impl true
-  def handle_call({:respond, mocked_function, args}, _from, state) do
+  def handle_call({:invoke, mocked_function, args}, _from, state) do
     expectation = state.expectations |> Enum.at(length(state.invocations))
 
     invocation = %{function: mocked_function, args: args}
