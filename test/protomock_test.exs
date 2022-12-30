@@ -3,15 +3,29 @@ defmodule ProtoMockTest do
 
   alias ProtoMock.VerificationError
 
-  test "it returns the expected data" do
-    protomock = create_mock()
+  describe "expect" do
+    test "works in the simple case" do
+      protomock = mock_add()
 
-    assert Calculator.add(protomock, 1, 2) == 3
+      assert Calculator.add(protomock, 1, 2) == 3
+    end
+
+    test "allows asserting that the function has not been called" do
+      protomock =
+        ProtoMock.new()
+          |> ProtoMock.expect(&Calculator.add/3, 0, fn _, int1, int2 -> int1 + int2 end)
+
+      msg = ~r"expected Calculator.add/3 to be called 0 times but it was called once"
+
+      assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
+        Calculator.add(protomock, 2, 3) == 5
+      end
+    end
   end
 
-  describe "verification" do
+  describe "verify" do
     test "when expectatons have been met, it returns :ok" do
-      protomock = create_mock()
+      protomock = mock_add()
 
       Calculator.add(protomock, 1, 2)
 
@@ -19,17 +33,17 @@ defmodule ProtoMockTest do
     end
 
     test "when expectations have not been met, it throws" do
-      protomock = create_mock()
+      protomock = mock_add()
 
       assert_raise VerificationError, fn -> ProtoMock.verify!(protomock) end
     end
   end
 
-  defp create_mock() do
+  defp mock_add() do
     protomock =
       ProtoMock.new()
       |> ProtoMock.expect(&Calculator.add/3, fn _, int1, int2 -> int1 + int2 end)
 
-      protomock
+    protomock
   end
 end
