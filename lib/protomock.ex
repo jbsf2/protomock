@@ -22,8 +22,8 @@ defmodule ProtoMock do
 
   @type expectation :: %{
     mocked_function: function(),
-    invocation_count: non_neg_integer(),
-    impl: function()
+    impl: function(),
+    pending?: boolean()
   }
 
   @type invocation :: %{
@@ -50,9 +50,15 @@ defmodule ProtoMock do
   end
 
   @spec expect(t(), function(), non_neg_integer(), function()) :: t()
-  def expect(protomock, mocked_function, invocation_count \\ 1, impl) do
+  def expect(protomock, mocked_function, invocation_count \\ 1, impl)
+
+  def expect(protomock = %ProtoMock{}, mocked_function, invocation_count, impl) do
     :ok = GenServer.call(protomock.name, {:expect, mocked_function, invocation_count, impl})
     protomock
+  end
+
+  def expect(not_a_protomock, _, _, _) do
+    raise ArgumentError, "First argument must be a ProtoMock; got #{inspect(not_a_protomock)} instead"
   end
 
   @spec invoke(t(), function(), [any()]) :: t()
@@ -85,12 +91,16 @@ defmodule ProtoMock do
 
   @impl true
   def handle_call({:expect, mocked_function, invocation_count, impl}, _from, state) do
-    new_expectation = %{
-      mocked_function: mocked_function,
-      invocation_count: invocation_count,
-      impl: impl
-    }
-    updated_expectations = state.expectations |> List.insert_at(-1, new_expectation)
+
+    new_expectations = for _ <- Range.new(1, invocation_count, 1) do
+      %{
+        mocked_function: mocked_function,
+        impl: impl,
+        pending?: true
+      }
+    end
+
+    updated_expectations = state.expectations ++ new_expectations
 
     updated_state = %{state | expectations: updated_expectations}
 
@@ -99,7 +109,6 @@ defmodule ProtoMock do
 
   @impl true
   def handle_call({:invoke, mocked_function, args}, _from, state) do
-    expectation = state.expectations |> Enum.at(length(state.invocations))
 
     invocation = %{function: mocked_function, args: args}
     updated_invocations = [invocation | state.invocations]
@@ -112,8 +121,9 @@ defmodule ProtoMock do
         {:reply, {UnexpectedCallError, {mocked_function, expected_count, actual_count}}, state}
 
       false ->
+        {expectation, updated_expectations} = next_expectation(state.expectations, mocked_function)
         response = Kernel.apply(expectation.impl, args)
-        updated_state = %{state | invocations: updated_invocations}
+        updated_state = %{state | invocations: updated_invocations, expectations: updated_expectations}
         {:reply, response, updated_state}
     end
   end
@@ -122,11 +132,6 @@ defmodule ProtoMock do
   def handle_call(:state, _from, state) do
     {:reply, state, state}
   end
-
-  # @impl true
-  # def terminate(reason, _state) do
-  #   IO.puts("reason: #{inspect(reason)}")
-  # end
 
   @impl true
   def handle_info({:link, link}, state) do
@@ -147,12 +152,23 @@ defmodule ProtoMock do
     random |> Integer.to_string() |> String.to_atom()
   end
 
+  def next_expectation(expectations, mocked_function) do
+    index = expectations |> Enum.find_index(fn expectation ->
+      expectation.pending? && expectation.mocked_function == mocked_function
+    end)
+
+    expectation = Enum.at(expectations, index)
+    updated_expectations = expectations |> List.update_at(index, &(%{&1 | pending?: false}))
+
+    {expectation, updated_expectations}
+  end
+
   @spec expected_count([expectation()], function) :: non_neg_integer()
   defp expected_count(expectations, function) do
     expectations
     |> Enum.filter(&(&1.mocked_function == function))
     |> expected_counts()
-    |> Map.get(function)
+    |> Map.get(function, 0)
   end
 
   @spec expected_counts([expectation()]) :: %{function() => non_neg_integer()}
@@ -160,9 +176,7 @@ defmodule ProtoMock do
     expectations
     |> Enum.reduce(%{}, fn expectation, acc ->
       mocked_function = expectation.mocked_function
-      existing_count = acc |> Map.get(mocked_function, 0)
-      updated_count = existing_count + expectation.invocation_count
-      acc |> Map.put(mocked_function, updated_count)
+      acc |> Map.update(mocked_function, 1, &(&1 + 1))
     end)
   end
 
@@ -171,7 +185,7 @@ defmodule ProtoMock do
     invocations
     |> Enum.filter(&(&1.function == function))
     |> actual_counts()
-    |> Map.get(function)
+    |> Map.get(function, 0)
   end
 
   @spec actual_counts([invocation()]) :: %{function() => non_neg_integer()}
@@ -179,9 +193,7 @@ defmodule ProtoMock do
     invocations
     |> Enum.reduce(%{}, fn invocation, acc ->
       function = invocation.function
-      existing_count = acc |> Map.get(function, 0)
-      updated_count = existing_count + 1
-      acc |> Map.put(function, updated_count)
+      acc |> Map.update(function, 1, &(&1 + 1))
     end)
   end
 

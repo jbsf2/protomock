@@ -1,25 +1,25 @@
 defprotocol Calculator do
 
   @spec add(t(), integer(), integer()) :: integer()
-  def add(calculator, int1, int2)
+  def add(calculator, x, y)
 
   @spec mult(t(), integer(), integer()) :: integer()
-  def mult(calculator, int1, int2)
+  def mult(calculator, x, y)
 
   @spec sqrt(t(), float()) :: float()
-  def sqrt(calulator, num)
+  def sqrt(calulator, x)
 end
 
 defimpl Calculator, for: ProtoMock do
-  def add(protomock, int1, int2) do
-    ProtoMock.invoke(protomock, &Calculator.add/3, [int1, int2])
+  def add(protomock, x, y) do
+    ProtoMock.invoke(protomock, &Calculator.add/3, [x, y])
   end
 
-  def mult(protomock, int1, int2) do
-    ProtoMock.invoke(protomock, &Calculator.mult/3, [int1, int2])
+  def mult(protomock, x, y) do
+    ProtoMock.invoke(protomock, &Calculator.mult/3, [x, y])
   end
 
-  def sqrt(protomock, float) do
-    ProtoMock.invoke(protomock, &Calculator.sqrt/2, [float])
+  def sqrt(protomock, x) do
+    ProtoMock.invoke(protomock, &Calculator.sqrt/2, [x])
   end
 end
