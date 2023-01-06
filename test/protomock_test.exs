@@ -45,16 +45,6 @@ defmodule ProtoMockTest do
       assert Calculator.add(protomock, 2, 2) == 4
     end
 
-    test "raises if a non-ProtoMock is given" do
-      assert_raise ArgumentError, ~r"got Unknown instead", fn ->
-        ProtoMock.expect(Unknown, &Calculator.add/3, fn _, x, y -> x + y end)
-      end
-
-      assert_raise ArgumentError, ~r"got String instead", fn ->
-        ProtoMock.expect(String, &Calculator.add/3, fn _, x, y -> x + y end)
-      end
-    end
-
     test "raises if there are no expectations" do
       msg = ~r"expected Calculator.add\/3 to be called 0 times but it was called once"
       assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
@@ -82,7 +72,6 @@ defmodule ProtoMockTest do
   end
 
   describe "verify" do
-
     test "with no expectations, it returns :ok" do
       protomock = ProtoMock.new()
 
@@ -155,8 +144,22 @@ defmodule ProtoMockTest do
     end
   end
 
+  describe "stub" do
+    test "allows repeated invocations" do
+      protomock = stub_add()
+
+      assert Calculator.add(protomock, 1, 2) == 3
+      assert Calculator.add(protomock, 3, 4) == 7
+    end
+  end
+
   defp mock_add() do
     ProtoMock.new()
     |> ProtoMock.expect(&Calculator.add/3, fn _, x, y -> x + y end)
+  end
+
+  defp stub_add() do
+    ProtoMock.new()
+    |> ProtoMock.stub(&Calculator.add/3, fn _, x, y -> x + y end)
   end
 end

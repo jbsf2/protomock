@@ -1,5 +1,4 @@
 defprotocol Calculator do
-
   @spec add(t(), integer(), integer()) :: integer()
   def add(calculator, x, y)
 

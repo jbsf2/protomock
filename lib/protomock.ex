@@ -15,7 +15,7 @@ defmodule ProtoMock do
   defmodule UnexpectedCallError do
     defexception [:message]
 
-    @spec exception({function(), non_neg_integer(), non_neg_integer()}) :: Exception.t()
+    @spec exception({function(), ProtoMock.expected_count(), non_neg_integer()}) :: Exception.t()
     def exception({function, expected_count, actual_count}) do
       message = ProtoMock.exception_message(function, expected_count, actual_count)
       %__MODULE__{message: message}
@@ -28,14 +28,17 @@ defmodule ProtoMock do
     pending?: boolean()
   }
 
+  @type expected_count :: non_neg_integer() | :unlimited
+
   @type invocation :: %{
     function: function(),
     args: [any()]
   }
 
   @type state :: %{
+    stubs: %{function() => function()},
     expectations: [expectation()],
-    invocations: [invocation()]
+    invocations: [invocation()],
   }
 
   defstruct [:pid]
@@ -45,21 +48,21 @@ defmodule ProtoMock do
 
   @spec new() :: t()
   def new() do
-    state = %{expectations: [], invocations: []}
+    state = %{stubs: %{}, expectations: [], invocations: []}
     {:ok, pid} = GenServer.start_link(__MODULE__, state)
     %__MODULE__{pid: pid}
   end
 
-  @spec expect(t(), function(), non_neg_integer(), function()) :: t()
-  def expect(protomock, mocked_function, invocation_count \\ 1, impl)
-
-  def expect(protomock = %ProtoMock{}, mocked_function, invocation_count, impl) do
-    :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
+  @spec expect(t(), function(), function()) :: t()
+  def stub(protomock = %ProtoMock{}, mocked_function, impl) do
+    :ok = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
     protomock
   end
 
-  def expect(not_a_protomock, _, _, _) do
-    raise ArgumentError, "First argument must be a ProtoMock; got #{inspect(not_a_protomock)} instead"
+  @spec expect(t(), function(), non_neg_integer(), function()) :: t()
+  def expect(protomock = %ProtoMock{}, mocked_function, invocation_count \\ 1, impl) do
+    :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
+    protomock
   end
 
   @spec invoke(t(), function(), [any()]) :: t()
@@ -75,14 +78,14 @@ defmodule ProtoMock do
   def verify!(protomock) do
     state = GenServer.call(protomock.pid, :state)
 
-    expected_counts = expected_counts(state.expectations)
+    expected_counts = expected_counts(state)
     actual_counts = actual_counts(state.invocations)
 
     failure_messages =
       expected_counts
       |> Enum.reduce([], fn {function, expected_count}, acc ->
         actual_count = actual_counts |> Map.get(function, 0)
-        case actual_count < expected_count do
+        case failed_expectations?(expected_count, actual_count) do
           true -> [exception_message(function, expected_count, actual_count) | acc]
           false -> acc
         end
@@ -97,6 +100,15 @@ defmodule ProtoMock do
   @impl true
   def init(init_arg) do
     {:ok, init_arg}
+  end
+
+  @impl true
+  def handle_call({:stub, mocked_function, impl}, _from, state) do
+
+    updated_stubs = state.stubs |> Map.put(mocked_function, impl)
+    updated_state = %{state | stubs: updated_stubs}
+
+    {:reply, :ok, updated_state}
   end
 
   @impl true
@@ -123,17 +135,17 @@ defmodule ProtoMock do
     invocation = %{function: mocked_function, args: args}
     updated_invocations = [invocation | state.invocations]
 
-    expected_count = expected_count(state.expectations, mocked_function)
+    expected_count = expected_count(state, mocked_function)
     actual_count = actual_count(updated_invocations, mocked_function)
 
-    case actual_count > expected_count do
+    case exceeded_expectations?(expected_count, actual_count) do
       true ->
         updated_state = %{state | invocations: updated_invocations}
         {:reply, {UnexpectedCallError, {mocked_function, expected_count, actual_count}}, updated_state}
 
       false ->
-        {expectation, updated_expectations} = next_expectation(state.expectations, mocked_function)
-        response = Kernel.apply(expectation.impl, args)
+        {impl, updated_expectations} = next_impl(state, mocked_function)
+        response = Kernel.apply(impl, args)
         updated_state = %{state | invocations: updated_invocations, expectations: updated_expectations}
         {:reply, response, updated_state}
     end
@@ -146,48 +158,69 @@ defmodule ProtoMock do
 
   # ----- private
 
-  def next_expectation(expectations, mocked_function) do
+  @spec next_impl(state(), function()) :: {function(), [expectation()]}
+  defp next_impl(state, mocked_function) do
+    expectations = state.expectations
     index = expectations |> Enum.find_index(fn expectation ->
       expectation.pending? && expectation.mocked_function == mocked_function
     end)
 
-    expectation = Enum.at(expectations, index)
-    updated_expectations = expectations |> List.update_at(index, &(%{&1 | pending?: false}))
+    case index do
+      nil ->
+        {stub_impl_for(state, mocked_function), expectations}
 
-    {expectation, updated_expectations}
+      index ->
+        expectation = Enum.at(expectations, index)
+        updated_expectations = expectations |> List.update_at(index, &(%{&1 | pending?: false}))
+        {expectation.impl, updated_expectations}
+    end
   end
 
-  @spec expected_count([expectation()], function) :: non_neg_integer()
-  defp expected_count(expectations, function) do
-    expectations
-    |> Enum.filter(&(&1.mocked_function == function))
-    |> expected_counts()
-    |> Map.get(function, 0)
+  @spec stub_impl_for(state(), function()) :: function()
+  defp stub_impl_for(state, mocked_function) do
+    state.stubs |> Map.get(mocked_function)
   end
 
-  @spec expected_counts([expectation()]) :: %{function() => non_neg_integer()}
-  defp expected_counts(expectations) do
-    expectations
-    |> Enum.reduce(%{}, fn expectation, acc ->
-      mocked_function = expectation.mocked_function
-      acc |> Map.update(mocked_function, 1, &(&1 + 1))
-    end)
+  @spec exceeded_expectations?(expected_count(), non_neg_integer()) :: boolean()
+  defp exceeded_expectations?(expected_count, actual_count) do
+    expected_count != :unlimited && expected_count < actual_count
   end
 
-  @spec actual_count([invocation()], function) :: non_neg_integer()
+  @spec failed_expectations?(expected_count(), non_neg_integer()) :: boolean()
+  defp failed_expectations?(expected_count, actual_count) do
+    expected_count != :unlimited && actual_count < expected_count
+  end
+
+  @spec expected_count(state(), function) :: expected_count()
+  defp expected_count(state, function) do
+    expected_counts(state) |> Map.get(function, 0)
+  end
+
+  @spec expected_counts(state()) :: %{function() => expected_count()}
+  defp expected_counts(state) do
+    unlimiteds =
+      state.stubs
+      |> Enum.reduce(%{}, fn {mocked_function, _impl}, acc ->
+        acc |> Map.put(mocked_function, :unlimited)
+      end)
+
+    state.expectations
+      |> Enum.reduce(%{}, fn expectation, acc ->
+        acc |> Map.update(expectation.mocked_function, 1, &(&1 + 1))
+      end)
+      |> Map.merge(unlimiteds, fn _, _, _ -> :unlimited end)
+  end
+
+  @spec actual_count([invocation()], function()) :: non_neg_integer()
   defp actual_count(invocations, function) do
-    invocations
-    |> Enum.filter(&(&1.function == function))
-    |> actual_counts()
-    |> Map.get(function, 0)
+    actual_counts(invocations) |> Map.get(function, 0)
   end
 
   @spec actual_counts([invocation()]) :: %{function() => non_neg_integer()}
   defp actual_counts(invocations) do
     invocations
     |> Enum.reduce(%{}, fn invocation, acc ->
-      function = invocation.function
-      acc |> Map.update(function, 1, &(&1 + 1))
+      acc |> Map.update(invocation.function, 1, &(&1 + 1))
     end)
   end
 
