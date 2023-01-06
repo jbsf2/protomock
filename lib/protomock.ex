@@ -38,24 +38,23 @@ defmodule ProtoMock do
     invocations: [invocation()]
   }
 
-  defstruct [:name]
+  defstruct [:pid]
   @type t :: %__MODULE__{
-    name: atom()
+    pid: atom()
   }
 
   @spec new() :: t()
   def new() do
-    name = random_genserver_name()
     state = %{expectations: [], invocations: []}
-    {:ok, _pid} = GenServer.start_link(__MODULE__, state, name: name)
-    %__MODULE__{name: name}
+    {:ok, pid} = GenServer.start_link(__MODULE__, state)
+    %__MODULE__{pid: pid}
   end
 
   @spec expect(t(), function(), non_neg_integer(), function()) :: t()
   def expect(protomock, mocked_function, invocation_count \\ 1, impl)
 
   def expect(protomock = %ProtoMock{}, mocked_function, invocation_count, impl) do
-    :ok = GenServer.call(protomock.name, {:expect, mocked_function, invocation_count, impl})
+    :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
     protomock
   end
 
@@ -65,7 +64,7 @@ defmodule ProtoMock do
 
   @spec invoke(t(), function(), [any()]) :: t()
   def invoke(protomock, mocked_function, args \\ []) do
-    reply = GenServer.call(protomock.name, {:invoke, mocked_function, [protomock | args]})
+    reply = GenServer.call(protomock.pid, {:invoke, mocked_function, [protomock | args]})
     case reply do
       {UnexpectedCallError, args} -> raise UnexpectedCallError, args
       response -> response
@@ -74,7 +73,7 @@ defmodule ProtoMock do
 
   @spec verify!(t()) :: t()
   def verify!(protomock) do
-    state = GenServer.call(protomock.name, :state)
+    state = GenServer.call(protomock.pid, :state)
 
     expected_counts = expected_counts(state.expectations)
     actual_counts = actual_counts(state.invocations)
@@ -146,11 +145,6 @@ defmodule ProtoMock do
   end
 
   # ----- private
-
-  defp random_genserver_name() do
-    random = :rand.uniform(10_000_000_000)
-    random |> Integer.to_string() |> String.to_atom()
-  end
 
   def next_expectation(expectations, mocked_function) do
     index = expectations |> Enum.find_index(fn expectation ->
