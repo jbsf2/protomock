@@ -118,7 +118,8 @@ defmodule ProtoMock do
 
     case actual_count > expected_count do
       true ->
-        {:reply, {UnexpectedCallError, {mocked_function, expected_count, actual_count}}, state}
+        updated_state = %{state | invocations: updated_invocations}
+        {:reply, {UnexpectedCallError, {mocked_function, expected_count, actual_count}}, updated_state}
 
       false ->
         {expectation, updated_expectations} = next_expectation(state.expectations, mocked_function)

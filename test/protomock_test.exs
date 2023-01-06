@@ -63,6 +63,26 @@ defmodule ProtoMockTest do
         Calculator.add(ProtoMock.new(), 2, 3) == 5
       end
     end
+
+    test "raises if all expectations have been consumed" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&Calculator.add/3, fn _, x, y -> x + y end)
+
+      assert Calculator.add(protomock, 1, 2) == 3
+
+      msg = "expected Calculator.add/3 to be called once but it was called twice"
+      assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
+        Calculator.add(protomock, 2, 3)
+      end
+
+      ProtoMock.expect(protomock, &Calculator.add/3, fn _, x, y -> x + y end)
+
+      msg = "expected Calculator.add/3 to be called twice but it was called 3 times"
+      assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
+        Calculator.add(protomock, 2, 3)
+      end
+    end
   end
 
   describe "verify" do
