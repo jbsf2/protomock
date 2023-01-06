@@ -43,7 +43,7 @@ defmodule ProtoMock do
 
   defstruct [:pid]
   @type t :: %__MODULE__{
-    pid: atom()
+    pid: pid()
   }
 
   @spec new() :: t()
@@ -74,7 +74,7 @@ defmodule ProtoMock do
     end
   end
 
-  @spec verify!(t()) :: t()
+  @spec verify!(t()) :: :ok
   def verify!(protomock) do
     state = GenServer.call(protomock.pid, :state)
 
