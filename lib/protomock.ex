@@ -4,18 +4,20 @@ defmodule ProtoMock do
 
   defmodule VerificationError do
     defexception [:message]
+
+    @spec exception([String.t()]) :: Exception.t()
+    def exception(messages) do
+      single_message = messages |> Enum.join("\n")
+      %__MODULE__{message: single_message}
+    end
   end
 
   defmodule UnexpectedCallError do
-
     defexception [:message]
 
+    @spec exception({function(), non_neg_integer(), non_neg_integer()}) :: Exception.t()
     def exception({function, expected_count, actual_count}) do
-      function_name = ProtoMock.function_name(function)
-      expected_times = ProtoMock.times(expected_count)
-      actual_times = ProtoMock.times(actual_count)
-
-      message = "expected #{function_name} to be called #{expected_times} but it was called #{actual_times}"
+      message = ProtoMock.exception_message(function, expected_count, actual_count)
       %__MODULE__{message: message}
     end
   end
@@ -73,15 +75,24 @@ defmodule ProtoMock do
   @spec verify!(t()) :: t()
   def verify!(protomock) do
     state = GenServer.call(protomock.name, :state)
-    expectations = state.expectations
-    invocations = state.invocations
 
-    if (length(expectations) != length(invocations)) do
-      message = "expected #{length(expectations)} function calls, but got #{length(invocations)}"
-      raise VerificationError, message: message
+    expected_counts = expected_counts(state.expectations)
+    actual_counts = actual_counts(state.invocations)
+
+    failure_messages =
+      expected_counts
+      |> Enum.reduce([], fn {function, expected_count}, acc ->
+        actual_count = actual_counts |> Map.get(function, 0)
+        case actual_count < expected_count do
+          true -> [exception_message(function, expected_count, actual_count) | acc]
+          false -> acc
+        end
+      end)
+
+    case failure_messages do
+      [] -> :ok
+      messages -> raise VerificationError, messages
     end
-
-    :ok
   end
 
   @impl true
@@ -132,18 +143,6 @@ defmodule ProtoMock do
   @impl true
   def handle_call(:state, _from, state) do
     {:reply, state, state}
-  end
-
-  @impl true
-  def handle_info({:link, link}, state) do
-    IO.puts("link")
-    Process.link(link)
-    {:noreply, state}
-  end
-
-  def handle_info(message, state) do
-    IO.puts("handle_info message: #{inspect(message)}")
-    {:noreply, state}
   end
 
   # ----- private
@@ -199,7 +198,7 @@ defmodule ProtoMock do
   end
 
   @spec times(non_neg_integer()) :: String.t()
-  def times(number) do
+  defp times(number) do
     case number do
       1 -> "once"
       2 -> "twice"
@@ -208,7 +207,15 @@ defmodule ProtoMock do
   end
 
   @spec function_name(function()) :: String.t()
-  def function_name(function) do
+  defp function_name(function) do
     inspect(function) |> String.replace_leading("&", "")
+  end
+
+  def exception_message(function, expected_count, actual_count) do
+    function_name = function_name(function)
+    expected_times = times(expected_count)
+    actual_times = times(actual_count)
+
+    "expected #{function_name} to be called #{expected_times} but it was called #{actual_times}"
   end
 end
