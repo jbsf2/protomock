@@ -151,11 +151,51 @@ defmodule ProtoMockTest do
       assert Calculator.add(protomock, 1, 2) == 3
       assert Calculator.add(protomock, 3, 4) == 7
     end
+
+    test "does not fail verification if not called" do
+      protomock = stub_add()
+
+      assert ProtoMock.verify!(protomock) == :ok
+    end
+
+    test "gives expectations precedence" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn _, x, y -> x + y end)
+        |> ProtoMock.expect(&Calculator.add/3, fn _, _x, _y -> :expected end)
+
+      assert Calculator.add(protomock, 1, 2) == :expected
+    end
+
+    test "a stub is called after all expectations are fulfilled" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn _, _x, _y -> :stubbed end)
+        |> ProtoMock.expect(&Calculator.add/3, 3, fn _, _x, _y -> :expected end)
+
+      assert Calculator.add(protomock, 1, 2) == :expected
+      assert Calculator.add(protomock, 3, 4) == :expected
+      assert Calculator.add(protomock, 5, 6) == :expected
+      assert Calculator.add(protomock, 7, 8) == :stubbed
+      assert Calculator.add(protomock, 9, 0) == :stubbed
+    end
+
+    test "overwrites earlier stubs" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn _, _x, _y -> :first end)
+        |> ProtoMock.stub(&Calculator.add/3, fn _, _x, _y -> :second end)
+
+      assert Calculator.add(protomock, 1, 2) == :second
+    end
   end
 
   defp mock_add() do
-    ProtoMock.new()
-    |> ProtoMock.expect(&Calculator.add/3, fn _, x, y -> x + y end)
+    mock_add(ProtoMock.new())
+  end
+
+  defp mock_add(protomock) do
+    protomock |> ProtoMock.expect(&Calculator.add/3, fn _, x, y -> x + y end)
   end
 
   defp stub_add() do
