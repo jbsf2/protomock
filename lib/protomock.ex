@@ -53,21 +53,21 @@ defmodule ProtoMock do
     %__MODULE__{pid: pid}
   end
 
-  @spec expect(t(), function(), function()) :: t()
-  def stub(protomock = %ProtoMock{}, mocked_function, impl) do
+  @spec stub(t(), function(), function()) :: t()
+  def stub(protomock, mocked_function, impl) do
     :ok = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
     protomock
   end
 
   @spec expect(t(), function(), non_neg_integer(), function()) :: t()
-  def expect(protomock = %ProtoMock{}, mocked_function, invocation_count \\ 1, impl) do
+  def expect(protomock, mocked_function, invocation_count \\ 1, impl) do
     :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
     protomock
   end
 
   @spec invoke(t(), function(), [any()]) :: t()
-  def invoke(protomock, mocked_function, args \\ []) do
-    reply = GenServer.call(protomock.pid, {:invoke, mocked_function, [protomock | args]})
+  def invoke(protomock, mocked_function, args) do
+    reply = GenServer.call(protomock.pid, {:invoke, mocked_function, args})
     case reply do
       {UnexpectedCallError, args} -> raise UnexpectedCallError, args
       response -> response

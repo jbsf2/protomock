@@ -35,7 +35,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "can be recharged" do
+    test "can be 'recharged'" do
       protomock = mock_add()
 
       assert Calculator.add(protomock, 1, 2) == 3
@@ -52,7 +52,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "raises if all expectations have been consumed" do
+    test "raises if expectations are exceeded" do
       protomock = mock_add()
 
       assert Calculator.add(protomock, 1, 2) == 3

@@ -9,7 +9,8 @@ defmodule ProtoMock.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       # elixirc_options: [warnings_as_errors: true],
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      consolidate_protocols: Mix.env() != :test
     ]
   end
 
