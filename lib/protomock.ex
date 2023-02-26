@@ -1,5 +1,4 @@
 defmodule ProtoMock do
-
   use GenServer
 
   defmodule VerificationError do
@@ -34,40 +33,40 @@ defmodule ProtoMock do
   @typep quoted_expression :: {atom() | tuple(), keyword(), list() | atom()}
 
   @typep expectation :: %{
-    mocked_function: function(),
-    impl: function(),
-    pending?: boolean()
-  }
+           mocked_function: function(),
+           impl: function(),
+           pending?: boolean()
+         }
 
   @typep expected_count :: non_neg_integer() | :unlimited
 
   @typep invocation :: %{
-    function: function(),
-    args: [any()]
-  }
+           function: function(),
+           args: [any()]
+         }
 
   @typep state :: %{
-    stubs: %{function() => function()},
-    expectations: [expectation()],
-    invocations: [invocation()],
-  }
+           stubs: %{function() => function()},
+           expectations: [expectation()],
+           invocations: [invocation()]
+         }
 
   defstruct [:pid]
+
   @type t :: %__MODULE__{
-    pid: pid()
-  }
+          pid: pid()
+        }
 
   @spec defimpl(module()) :: :ok
   def defimpl(protocol) do
-
     Protocol.assert_protocol!(protocol)
 
-    if impl_exists?(protocol), do: raise ProtoMock.ImplAlreadyDefinedError, protocol
+    if impl_exists?(protocol), do: raise(ProtoMock.ImplAlreadyDefinedError, protocol)
 
     quoted =
       quote do
         defimpl unquote(protocol), for: unquote(ProtoMock) do
-          unquote_splicing(impl_functions(protocol))
+          (unquote_splicing(impl_functions(protocol)))
         end
       end
 
@@ -97,6 +96,7 @@ defmodule ProtoMock do
   @spec invoke(t(), function(), [any()]) :: t()
   def invoke(protomock, mocked_function, args) do
     reply = GenServer.call(protomock.pid, {:invoke, mocked_function, args})
+
     case reply do
       {UnexpectedCallError, args} -> raise UnexpectedCallError, args
       response -> response
@@ -114,6 +114,7 @@ defmodule ProtoMock do
       expected_counts
       |> Enum.reduce([], fn {function, expected_count}, acc ->
         actual_count = actual_counts |> Map.get(function, 0)
+
         case failed_expectations?(expected_count, actual_count) do
           true -> [exception_message(function, expected_count, actual_count) | acc]
           false -> acc
@@ -133,7 +134,6 @@ defmodule ProtoMock do
 
   @impl true
   def handle_call({:stub, mocked_function, impl}, _from, state) do
-
     updated_stubs = state.stubs |> Map.put(mocked_function, impl)
     updated_state = %{state | stubs: updated_stubs}
 
@@ -142,14 +142,14 @@ defmodule ProtoMock do
 
   @impl true
   def handle_call({:expect, mocked_function, invocation_count, impl}, _from, state) do
-
-    new_expectations = for _ <- Range.new(1, invocation_count, 1) do
-      %{
-        mocked_function: mocked_function,
-        impl: impl,
-        pending?: true
-      }
-    end
+    new_expectations =
+      for _ <- Range.new(1, invocation_count, 1) do
+        %{
+          mocked_function: mocked_function,
+          impl: impl,
+          pending?: true
+        }
+      end
 
     updated_expectations = state.expectations ++ new_expectations
 
@@ -160,7 +160,6 @@ defmodule ProtoMock do
 
   @impl true
   def handle_call({:invoke, mocked_function, args}, _from, state) do
-
     invocation = %{function: mocked_function, args: args}
     updated_invocations = [invocation | state.invocations]
 
@@ -170,12 +169,19 @@ defmodule ProtoMock do
     case exceeded_expectations?(expected_count, actual_count) do
       true ->
         updated_state = %{state | invocations: updated_invocations}
-        {:reply, {UnexpectedCallError, {mocked_function, expected_count, actual_count}}, updated_state}
+        error_args = {mocked_function, expected_count, actual_count}
+        {:reply, {UnexpectedCallError, error_args}, updated_state}
 
       false ->
         {impl, updated_expectations} = next_impl(state, mocked_function)
         response = Kernel.apply(impl, args)
-        updated_state = %{state | invocations: updated_invocations, expectations: updated_expectations}
+
+        updated_state = %{
+          state
+          | invocations: updated_invocations,
+            expectations: updated_expectations
+        }
+
         {:reply, response, updated_state}
     end
   end
@@ -190,9 +196,12 @@ defmodule ProtoMock do
   @spec next_impl(state(), function()) :: {function(), [expectation()]}
   defp next_impl(state, mocked_function) do
     expectations = state.expectations
-    index = expectations |> Enum.find_index(fn expectation ->
-      expectation.pending? && expectation.mocked_function == mocked_function
-    end)
+
+    index =
+      expectations
+      |> Enum.find_index(fn expectation ->
+        expectation.pending? && expectation.mocked_function == mocked_function
+      end)
 
     case index do
       nil ->
@@ -200,7 +209,7 @@ defmodule ProtoMock do
 
       index ->
         expectation = Enum.at(expectations, index)
-        updated_expectations = expectations |> List.update_at(index, &(%{&1 | pending?: false}))
+        updated_expectations = expectations |> List.update_at(index, &%{&1 | pending?: false})
         {expectation.impl, updated_expectations}
     end
   end
@@ -234,10 +243,10 @@ defmodule ProtoMock do
       end)
 
     state.expectations
-      |> Enum.reduce(%{}, fn expectation, acc ->
-        acc |> Map.update(expectation.mocked_function, 1, &(&1 + 1))
-      end)
-      |> Map.merge(unlimiteds, fn _, _, _ -> :unlimited end)
+    |> Enum.reduce(%{}, fn expectation, acc ->
+      acc |> Map.update(expectation.mocked_function, 1, &(&1 + 1))
+    end)
+    |> Map.merge(unlimiteds, fn _, _, _ -> :unlimited end)
   end
 
   @spec actual_count([invocation()], function()) :: non_neg_integer()
@@ -281,7 +290,7 @@ defmodule ProtoMock do
     |> Enum.map(fn {function_name, arity} ->
       protomock = Macro.var(:protomock, __MODULE__)
       mocked_function = Function.capture(protocol, function_name, arity)
-      args = Range.new(1, arity-1, 1) |> Enum.map(&Macro.var(:"arg#{&1}", __MODULE__))
+      args = Range.new(1, arity - 1, 1) |> Enum.map(&Macro.var(:"arg#{&1}", __MODULE__))
 
       quote do
         def unquote(function_name)(unquote(protomock), unquote_splicing(args)) do

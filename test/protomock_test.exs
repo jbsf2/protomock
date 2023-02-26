@@ -85,6 +85,7 @@ defmodule ProtoMockTest do
 
     test "raises if there are no expectations" do
       msg = ~r"expected Calculator.add\/3 to be called 0 times but it was called once"
+
       assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
         Calculator.add(ProtoMock.new(), 2, 3) == 5
       end
@@ -96,6 +97,7 @@ defmodule ProtoMockTest do
       assert Calculator.add(protomock, 1, 2) == 3
 
       msg = "expected Calculator.add/3 to be called once but it was called twice"
+
       assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
         Calculator.add(protomock, 2, 3)
       end
@@ -103,6 +105,7 @@ defmodule ProtoMockTest do
       ProtoMock.expect(protomock, &Calculator.add/3, fn _, x, y -> x + y end)
 
       msg = "expected Calculator.add/3 to be called twice but it was called 3 times"
+
       assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
         Calculator.add(protomock, 2, 3)
       end
@@ -144,6 +147,7 @@ defmodule ProtoMockTest do
       ProtoMock.expect(protomock, &Calculator.add/3, fn _, x, y -> x + y end)
 
       msg = "expected Calculator.add/3 to be called twice but it was called once"
+
       assert_raise VerificationError, msg, fn ->
         ProtoMock.verify!(protomock)
       end
@@ -157,6 +161,7 @@ defmodule ProtoMockTest do
       Calculator.add(protomock, 1, 2)
 
       msg = "expected Calculator.mult/3 to be called once but it was called 0 times"
+
       assert_raise VerificationError, msg, fn ->
         ProtoMock.verify!(protomock)
       end
