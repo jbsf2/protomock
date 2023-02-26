@@ -15,27 +15,38 @@ defmodule ProtoMock do
   defmodule UnexpectedCallError do
     defexception [:message]
 
-    @spec exception({function(), ProtoMock.expected_count(), non_neg_integer()}) :: Exception.t()
+    @spec exception({function(), non_neg_integer(), non_neg_integer()}) :: Exception.t()
     def exception({function, expected_count, actual_count}) do
       message = ProtoMock.exception_message(function, expected_count, actual_count)
       %__MODULE__{message: message}
     end
   end
 
-  @type expectation :: %{
+  defmodule ImplAlreadyDefinedError do
+    defexception [:message]
+
+    def exception(protocol) do
+      message = "ProtoMock already has an implementation defined for protocol #{protocol}"
+      %__MODULE__{message: message}
+    end
+  end
+
+  @typep quoted_expression :: {atom() | tuple(), keyword(), list() | atom()}
+
+  @typep expectation :: %{
     mocked_function: function(),
     impl: function(),
     pending?: boolean()
   }
 
-  @type expected_count :: non_neg_integer() | :unlimited
+  @typep expected_count :: non_neg_integer() | :unlimited
 
-  @type invocation :: %{
+  @typep invocation :: %{
     function: function(),
     args: [any()]
   }
 
-  @type state :: %{
+  @typep state :: %{
     stubs: %{function() => function()},
     expectations: [expectation()],
     invocations: [invocation()],
@@ -45,6 +56,24 @@ defmodule ProtoMock do
   @type t :: %__MODULE__{
     pid: pid()
   }
+
+  @spec defimpl(module()) :: :ok
+  def defimpl(protocol) do
+
+    Protocol.assert_protocol!(protocol)
+
+    if impl_exists?(protocol), do: raise ProtoMock.ImplAlreadyDefinedError, protocol
+
+    quoted =
+      quote do
+        defimpl unquote(protocol), for: unquote(ProtoMock) do
+          unquote_splicing(impl_functions(protocol))
+        end
+      end
+
+    {_term, _binding} = Code.eval_quoted(quoted)
+    :ok
+  end
 
   @spec new() :: t()
   def new() do
@@ -245,4 +274,33 @@ defmodule ProtoMock do
 
     "expected #{function_name} to be called #{expected_times} but it was called #{actual_times}"
   end
+
+  @spec impl_functions(module()) :: [quoted_expression()]
+  defp impl_functions(protocol) do
+    protocol.__protocol__(:functions)
+    |> Enum.map(fn {function_name, arity} ->
+      protomock = Macro.var(:protomock, __MODULE__)
+      mocked_function = Function.capture(protocol, function_name, arity)
+      args = Range.new(1, arity-1, 1) |> Enum.map(&Macro.var(:"arg#{&1}", __MODULE__))
+
+      quote do
+        def unquote(function_name)(unquote(protomock), unquote_splicing(args)) do
+          ProtoMock.invoke(
+            protomock,
+            unquote(mocked_function),
+            unquote([protomock | args])
+          )
+        end
+      end
+    end)
+  end
+
+  @spec impl_exists?(module()) :: boolean()
+  def impl_exists?(protocol) do
+    impl = Module.concat(protocol, ProtoMock)
+    module_exists?(impl) and impl.__impl__(:protocol) == protocol
+  end
+
+  @spec module_exists?(module()) :: boolean()
+  def module_exists?(module), do: function_exported?(module, :__info__, 1)
 end

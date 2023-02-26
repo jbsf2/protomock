@@ -28,3 +28,4 @@ protomock-*.tar
 .elixir_ls
 _build
 .vscode
+scratch.*

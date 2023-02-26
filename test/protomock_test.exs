@@ -3,6 +3,44 @@ defmodule ProtoMockTest do
 
   alias ProtoMock.VerificationError
 
+  describe "defimpl" do
+    test "when there is no existing impl for Protomock, it creates one" do
+      defprotocol DefimplTest1 do
+        def hello(impl)
+      end
+
+      ProtoMock.defimpl(DefimplTest1)
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&DefimplTest1.hello/1, fn _ -> "hello, world!" end)
+
+      assert DefimplTest1.hello(protomock) == "hello, world!"
+
+      assert ProtoMock.verify!(protomock) == :ok
+    end
+
+    test "when there is already an impl defined, it raises an error" do
+      defprotocol DefimplTest2 do
+        def hello(impl)
+      end
+
+      ProtoMock.defimpl(DefimplTest2)
+
+      msg = ~r"ProtoMock already has an implementation defined for protocol #{DefimplTest2}"
+
+      assert_raise ProtoMock.ImplAlreadyDefinedError, msg, fn ->
+        ProtoMock.defimpl(DefimplTest2)
+      end
+    end
+
+    test "when the argument is not a protocol, it raises an error" do
+      assert_raise ArgumentError, "Map is not a protocol", fn ->
+        ProtoMock.defimpl(Map)
+      end
+    end
+  end
+
   describe "expect" do
     test "works in the simple case" do
       protomock = mock_add()
