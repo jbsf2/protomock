@@ -53,9 +53,9 @@ defmodule ProtoMock do
 
   defstruct [:pid]
 
-  @type t :: %__MODULE__{
-          pid: pid()
-        }
+  @opaque t :: %__MODULE__{
+            pid: pid()
+          }
 
   @spec defimpl(module()) :: :ok
   def defimpl(protocol) do
