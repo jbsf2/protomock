@@ -64,11 +64,11 @@ defmodule ProtoMock do
 
       defimpl MyApp.WeatherAPI, for: ProtoMock do
         def temperature(protomock, lat_long) do
-          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.temperature/2, [protomock, lat_long])
+          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.temperature/2, [lat_long])
         end
 
         def humidity(protomock, lat_long) do
-          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.humidity/2, [protomock, lat_long])
+          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.humidity/2, [lat_long])
         end
       end
 
@@ -477,7 +477,7 @@ defmodule ProtoMock do
           ProtoMock.invoke(
             protomock,
             unquote(mocked_function),
-            unquote([protomock | args])
+            unquote(args)
           )
         end
       end

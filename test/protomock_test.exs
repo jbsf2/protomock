@@ -13,7 +13,7 @@ defmodule ProtoMockTest do
 
       protomock =
         ProtoMock.new()
-        |> ProtoMock.expect(&DefimplTest1.hello/1, fn _ -> "hello, world!" end)
+        |> ProtoMock.expect(&DefimplTest1.hello/1, fn -> "hello, world!" end)
 
       assert DefimplTest1.hello(protomock) == "hello, world!"
 
@@ -51,8 +51,8 @@ defmodule ProtoMockTest do
     test "is order-insensitive" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.expect(&Calculator.add/3, 3, fn _, x, y -> x + y end)
-        |> ProtoMock.expect(&Calculator.mult/3, 2, fn _, x, y -> x * y end)
+        |> ProtoMock.expect(&Calculator.add/3, 3, fn x, y -> x + y end)
+        |> ProtoMock.expect(&Calculator.mult/3, 2, fn x, y -> x * y end)
 
       assert Calculator.add(protomock, 1, 1) == 2
       assert Calculator.mult(protomock, 1, 1) == 1
@@ -64,7 +64,7 @@ defmodule ProtoMockTest do
     test "allows asserting that the function has not been called" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.expect(&Calculator.add/3, 0, fn _, x, y -> x + y end)
+        |> ProtoMock.expect(&Calculator.add/3, 0, fn x, y -> x + y end)
 
       msg = ~r"expected Calculator.add/3 to be called 0 times but it was called once"
 
@@ -78,7 +78,7 @@ defmodule ProtoMockTest do
 
       assert Calculator.add(protomock, 1, 2) == 3
 
-      protomock |> ProtoMock.expect(&Calculator.add/3, 1, fn _, x, y -> x + y end)
+      protomock |> ProtoMock.expect(&Calculator.add/3, 1, fn x, y -> x + y end)
 
       assert Calculator.add(protomock, 2, 2) == 4
     end
@@ -102,7 +102,7 @@ defmodule ProtoMockTest do
         Calculator.add(protomock, 2, 3)
       end
 
-      ProtoMock.expect(protomock, &Calculator.add/3, fn _, x, y -> x + y end)
+      ProtoMock.expect(protomock, &Calculator.add/3, fn x, y -> x + y end)
 
       msg = "expected Calculator.add/3 to be called twice but it was called 3 times"
 
@@ -144,7 +144,7 @@ defmodule ProtoMockTest do
 
       assert ProtoMock.verify!(protomock) == :ok
 
-      ProtoMock.expect(protomock, &Calculator.add/3, fn _, x, y -> x + y end)
+      ProtoMock.expect(protomock, &Calculator.add/3, fn x, y -> x + y end)
 
       msg = "expected Calculator.add/3 to be called twice but it was called once"
 
@@ -156,7 +156,7 @@ defmodule ProtoMockTest do
     test "it looks at all expected functions" do
       protomock =
         mock_add()
-        |> ProtoMock.expect(&Calculator.mult/3, fn _, x, y -> x * y end)
+        |> ProtoMock.expect(&Calculator.mult/3, fn x, y -> x * y end)
 
       Calculator.add(protomock, 1, 2)
 
@@ -170,7 +170,7 @@ defmodule ProtoMockTest do
     test "it reports all errors at once" do
       protomock =
         mock_add()
-        |> ProtoMock.expect(&Calculator.mult/3, fn _, x, y -> x * y end)
+        |> ProtoMock.expect(&Calculator.mult/3, fn x, y -> x * y end)
 
       msg1 = "expected Calculator.add/3 to be called once but it was called 0 times"
       msg2 = "expected Calculator.mult/3 to be called once but it was called 0 times"
@@ -204,8 +204,8 @@ defmodule ProtoMockTest do
     test "gives expectations precedence" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/3, fn _, x, y -> x + y end)
-        |> ProtoMock.expect(&Calculator.add/3, fn _, _x, _y -> :expected end)
+        |> ProtoMock.stub(&Calculator.add/3, fn x, y -> x + y end)
+        |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> :expected end)
 
       assert Calculator.add(protomock, 1, 2) == :expected
     end
@@ -213,8 +213,8 @@ defmodule ProtoMockTest do
     test "a stub is called after all expectations are fulfilled" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/3, fn _, _x, _y -> :stubbed end)
-        |> ProtoMock.expect(&Calculator.add/3, 3, fn _, _x, _y -> :expected end)
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :stubbed end)
+        |> ProtoMock.expect(&Calculator.add/3, 3, fn _x, _y -> :expected end)
 
       assert Calculator.add(protomock, 1, 2) == :expected
       assert Calculator.add(protomock, 3, 4) == :expected
@@ -226,8 +226,8 @@ defmodule ProtoMockTest do
     test "overwrites earlier stubs" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/3, fn _, _x, _y -> :first end)
-        |> ProtoMock.stub(&Calculator.add/3, fn _, _x, _y -> :second end)
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :first end)
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :second end)
 
       assert Calculator.add(protomock, 1, 2) == :second
     end
@@ -238,11 +238,11 @@ defmodule ProtoMockTest do
   end
 
   defp mock_add(protomock) do
-    protomock |> ProtoMock.expect(&Calculator.add/3, fn _, x, y -> x + y end)
+    protomock |> ProtoMock.expect(&Calculator.add/3, fn x, y -> x + y end)
   end
 
   defp stub_add() do
     ProtoMock.new()
-    |> ProtoMock.stub(&Calculator.add/3, fn _, x, y -> x + y end)
+    |> ProtoMock.stub(&Calculator.add/3, fn x, y -> x + y end)
   end
 end
