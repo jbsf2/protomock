@@ -1,4 +1,181 @@
 defmodule ProtoMock do
+  @moduledoc ~S"""
+  ProtoMock is a library for mocking Elixir protocols.
+
+  ## Motivation / Use Case
+
+  ProtoMock was built to support using protocols, rather than behaviours and/or plain
+  modules, for modeling and accessing external APIs. When external APIs are modeled with
+  protocols, ProtoMock can provide mocking capabilities.
+
+  Modeling external APIs with protocols provides these benefits:
+
+  * API transparency
+  * IDE navigability
+  * Compiler detection of api errors
+
+  It is not expected that ProtoMock would be useful for more traditional protocol use
+  cases, wherein protocols such as `Enum` provide a common interface for operating on
+  disparate data structures. In such situations, there is no value in testing with mocks,
+  therefore ProtoMock has no role.
+
+  ## Example
+
+  Following the traditional [Mox example](https://hexdocs.pm/mox/Mox.html#module-example),
+  imagine that we have an app that has to display the weather. To retrieve weather data,
+  we use an external weather API called AcmeWeather, and we model the API with our own
+  protocol:
+
+      defprotocol MyApp.WeatherAPI do
+        @type lat_long :: {float(), float()}
+        @type api_result :: {:ok, float()} | {:error, String.t()}
+
+        @spec temperature(t(), lat_long()) :: api_result()
+        def temperature(weather_api, lat_long)
+
+        @spec humidity(t(), lat_long()) :: api_result()
+        def humidity(weather_api, lat_long)
+      end
+
+  We create a "real" implementation of `WeatherAPI` that calls out to the
+  AcmeWeather api client:
+
+      defimpl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
+        def temperature(api_config, {lat, long}) do
+          AcmeWeather.Client.get_temperature(lat, long, api_config)
+        end
+
+        def humidity(api_config, {lat, long}) do
+          AcmeWeather.Client.get_humidity(lat, long, api_config)
+        end
+      end
+
+  For testing, however, we want to mock the service.
+
+  As a first step, we define an implementation of `WeatherAPI` that proxies
+  its function calls to an instance of `ProtoMock`. For creating such
+  implementations, the `ProtoMock` module provides the function `defimpl/1`. We can use
+  that function in our `test_helper.exs` or similar test suite config file:
+
+      ProtoMock.defimpl(MyApp.WeatherAPI)
+
+  This creates an implementation of `WeatherAPI` for `ProtoMock` that is equivalent
+  to this code:
+
+      defimpl MyApp.WeatherAPI, for: ProtoMock do
+        def temperature(protomock, lat_long) do
+          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.temperature/2, [protomock, lat_long])
+        end
+
+        def humidity(protomock, lat_long) do
+          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.humidity/2, [protomock, lat_long])
+        end
+      end
+
+  With this implementation now loaded into the BEAM, we are prepared to use instances
+  of `ProtoMock` to dispatch `WeatherAPI` functions.
+
+  For this example, we'll focus on the simplest use case scenario for our protocol: a
+  function that takes a protocol implementation as an input parameter. Other scenarios,
+  such as using protocols within GenServers or using protocols when implementations
+  aren't passed as parameters, are discussed elsewhere.
+
+  Continuing with the [Mox example](https://hexdocs.pm/mox/Mox.html#module-example),
+  imagine that our application code looks like:
+
+      defmodule MyApp.HumanizedWeather do
+        alias MyApp.WeatherAPI
+
+        def display_temp({lat, long}, weather_api \\ default_weather_api()) do
+          {:ok, temp} = WeatherAPI.temperature(weather_api, {lat, long})
+          "Current temperature is #{temp} degrees"
+        end
+
+        def display_humidity({lat, long}, weather_api \\ default_weather_api()) do
+          {:ok, humidity} = WeatherAPI.humidity(weather_api, {lat, long})
+          "Current humidity is #{humidity}%"
+        end
+
+        defp default_weather_api() do
+          Application.get_env(MyApp, :weather_api)
+        end
+      end
+
+  In our test, we're ready to create instances of ProtoMock and use functions `expect/4`,
+  `stub/3` and `verify!/1`.
+
+      defmodule MyApp.HumanizedWeatherTest do
+        use ExUnit.Case, async: true
+
+        alias MyApp.HumanizedWeather
+        alias MyApp.WeatherAPI
+
+        test "gets and formats temperature" do
+          protomock =
+            ProtoMock.new()
+            |> ProtoMock.expect(&WeatherAPI.temperature/2, fn _api, _lat_long -> {:ok, 30} end)
+
+          assert HumanizedWeather.display_temp({50.06, 19.94}, protomock) ==
+                  "Current temperature is 30 degrees"
+
+          ProtoMock.verify!(protomock)
+        end
+
+        test "gets and formats humidity" do
+          protomock =
+            ProtoMock.new()
+            |> ProtoMock.stub(&WeatherAPI.humidity/2, fn _api, _lat_long -> {:ok, 60} end)
+
+          assert HumanizedWeather.display_humidity({50.06, 19.94}, protomock) ==
+                "Current humidity is 60%"
+        end
+      end
+
+  ## Under the hood: a GenServer
+
+  The `ProtoMock` module is a GenServer. Each time we create a `ProtoMock` with `new/0`,
+  we start a new `ProtoMock` GenServer that is linked to the calling process - typically
+  an ExUnit test process. When the test pid dies, the `ProtoMock` GenServer dies with it.
+
+  `expect/4` and `stub/3` modify the `ProtoMock` GenServer state to tell the ProtoMock
+  how it will be used and how it should respond. `invoke/3` modifies GenServer state to
+  track actual invocations of protocol functions, with their arguments. `verify!/1`
+  compares actual invocations to the expectations defined via `expect/4`, and raises in
+  case of an expectations mismatch.
+
+  ## Comparison to [Mox](https://hexdocs.pm/mox/Mox.html)
+
+  In order to feel familiar to developers, the ProtoMock API was loosely modeled after the
+  Mox API.
+
+  Some differences worth noting:
+
+  * ProtoMock has no concept of private mode or global mode. It's expected that each ExUnit
+    test will create its own instance or instances of `ProtoMock` that are implicitly private
+    to the test pid, thereby always being safe for `async: true`
+  * Similarly, ProtoMock has no concept of allowances. Each `ProtoMock` instance is just a
+    GenServer that can be used freely and without worry by any process spawned by an
+    ExUnit test process (provided that the child process does not interact with other tests).
+  * Rather than specificying expectations and stubs with a module name and a function name,
+    e.g. `(MyAPIModule, :my_api_function ...)`, ProtoMock uses function captures, e.g.
+    `&MyApiProtocol.my_api_function/2`. As a benefit, mismatches between actual code and
+    expectations/stubs will be caught at compile time.
+  * `stub_with` and `verify_on_exit` are not implemented, but may be implemented in future
+    versions if there's interest.
+
+  ## Goals and Philosophy
+
+  ProtoMock aims to support and enable the notion that each test should be its own
+  little parallel universe, without any modifiable state shared between tests. It
+  intentionally avoids practices common in mocking libraries such as setting/resetting
+  Application environment variables. Such practices create potential collisions between
+  tests that must be avoided with `async: false`. ProtoMock believes `async` should
+  always be `true`!
+
+  ProtoMock aims to provide an easy-on-the-eyes, function-oriented API that doesn't
+  rely on macros and doesn't require wrapping test code in closures.
+
+  """
   use GenServer
 
   defmodule VerificationError do
@@ -276,6 +453,7 @@ defmodule ProtoMock do
     inspect(function) |> String.replace_leading("&", "")
   end
 
+  @doc false
   def exception_message(function, expected_count, actual_count) do
     function_name = function_name(function)
     expected_times = times(expected_count)
@@ -284,6 +462,8 @@ defmodule ProtoMock do
     "expected #{function_name} to be called #{expected_times} but it was called #{actual_times}"
   end
 
+  # For each function defined by the given protocol, `impl_functions` generates
+  # an implementation function that proxies to a ProtoMock.
   @spec impl_functions(module()) :: [quoted_expression()]
   defp impl_functions(protocol) do
     protocol.__protocol__(:functions)
@@ -305,11 +485,11 @@ defmodule ProtoMock do
   end
 
   @spec impl_exists?(module()) :: boolean()
-  def impl_exists?(protocol) do
+  defp impl_exists?(protocol) do
     impl = Module.concat(protocol, ProtoMock)
     module_exists?(impl) and impl.__impl__(:protocol) == protocol
   end
 
   @spec module_exists?(module()) :: boolean()
-  def module_exists?(module), do: function_exported?(module, :__info__, 1)
+  defp module_exists?(module), do: function_exported?(module, :__info__, 1)
 end

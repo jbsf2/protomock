@@ -10,7 +10,11 @@ defmodule ProtoMock.MixProject do
       deps: deps(),
       # elixirc_options: [warnings_as_errors: true],
       elixirc_paths: elixirc_paths(Mix.env()),
-      consolidate_protocols: Mix.env() != :test
+      consolidate_protocols: Mix.env() != :test,
+
+      # Docs
+      name: "ProtoMock",
+      source_url: "https://github.com/jbsf2/protomock"
     ]
   end
 
@@ -28,7 +32,8 @@ defmodule ProtoMock.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:dialyxir, "~> 1.2", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.2", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.29.2", only: :dev, runtime: false}
     ]
   end
 end
