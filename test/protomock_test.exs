@@ -29,7 +29,7 @@ defmodule ProtoMockTest do
 
       msg = ~r"ProtoMock already has an implementation defined for protocol #{DefimplTest2}"
 
-      assert_raise ProtoMock.ImplAlreadyDefinedError, msg, fn ->
+      assert_raise ArgumentError, msg, fn ->
         ProtoMock.create_impl(DefimplTest2)
       end
     end

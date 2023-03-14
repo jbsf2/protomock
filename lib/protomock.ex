@@ -184,15 +184,6 @@ defmodule ProtoMock do
     end
   end
 
-  defmodule ImplAlreadyDefinedError do
-    defexception [:message]
-
-    def exception(protocol) do
-      message = "ProtoMock already has an implementation defined for protocol #{protocol}"
-      %__MODULE__{message: message}
-    end
-  end
-
   @typep quoted_expression :: {atom() | tuple(), keyword(), list() | atom()}
 
   @typep expectation :: %{
@@ -243,7 +234,10 @@ defmodule ProtoMock do
   def create_impl(protocol) do
     Protocol.assert_protocol!(protocol)
 
-    if impl_exists?(protocol), do: raise(ProtoMock.ImplAlreadyDefinedError, protocol)
+    if impl_exists?(protocol) do
+      message = "ProtoMock already has an implementation defined for protocol #{protocol}"
+      raise ArgumentError, message
+    end
 
     quoted =
       quote do
@@ -396,21 +390,7 @@ defmodule ProtoMock do
   """
   @spec verify!(t()) :: :ok
   def verify!(protomock) do
-    state = GenServer.call(protomock.pid, :state)
-
-    expected_counts = expected_counts(state)
-    actual_counts = actual_counts(state.invocations)
-
-    failure_messages =
-      expected_counts
-      |> Enum.reduce([], fn {function, expected_count}, acc ->
-        actual_count = actual_counts |> Map.get(function, 0)
-
-        case failed_expectations?(expected_count, actual_count) do
-          true -> [exception_message(function, expected_count, actual_count) | acc]
-          false -> acc
-        end
-      end)
+    failure_messages = GenServer.call(protomock.pid, :verify)
 
     case failure_messages do
       [] -> :ok
@@ -478,8 +458,22 @@ defmodule ProtoMock do
   end
 
   @impl true
-  def handle_call(:state, _from, state) do
-    {:reply, state, state}
+  def handle_call(:verify, _from, state) do
+    expected_counts = expected_counts(state)
+    actual_counts = actual_counts(state.invocations)
+
+    failure_messages =
+      expected_counts
+      |> Enum.reduce([], fn {function, expected_count}, acc ->
+        actual_count = actual_counts |> Map.get(function, 0)
+
+        case failed_expectations?(expected_count, actual_count) do
+          true -> [exception_message(function, expected_count, actual_count) | acc]
+          false -> acc
+        end
+      end)
+
+    {:reply, failure_messages, state}
   end
 
   # ----- private
