@@ -2,7 +2,7 @@ defmodule ProtoMock do
   @moduledoc ~S"""
   ProtoMock is a library for mocking Elixir protocols.
 
-  ## Motivation / Use Case
+  ## Motivation / use case
 
   ProtoMock was built to support using protocols, rather than behaviours and/or plain
   modules, for modeling and accessing external APIs. When external APIs are modeled with
@@ -40,7 +40,7 @@ defmodule ProtoMock do
   We create a "real" implementation of `WeatherAPI` that calls out to the
   AcmeWeather api client:
 
-      defimpl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
+      create_impl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
         def temperature(api_config, {lat, long}) do
           AcmeWeather.Client.get_temperature(lat, long, api_config)
         end
@@ -54,23 +54,10 @@ defmodule ProtoMock do
 
   As a first step, we define an implementation of `WeatherAPI` that proxies
   its function calls to an instance of `ProtoMock`. For creating such
-  implementations, the `ProtoMock` module provides the function `defimpl/1`. We can use
+  implementations, the `ProtoMock` module provides the function `create_impl/1`. We can use
   that function in our `test_helper.exs` or similar test suite config file:
 
-      ProtoMock.defimpl(MyApp.WeatherAPI)
-
-  This creates an implementation of `WeatherAPI` for `ProtoMock` that is equivalent
-  to this code:
-
-      defimpl MyApp.WeatherAPI, for: ProtoMock do
-        def temperature(protomock, lat_long) do
-          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.temperature/2, [lat_long])
-        end
-
-        def humidity(protomock, lat_long) do
-          ProtoMock.invoke(protomock, &MyApp.WeatherAPI.humidity/2, [lat_long])
-        end
-      end
+      ProtoMock.create_impl(MyApp.WeatherAPI)
 
   With this implementation now loaded into the BEAM, we are prepared to use instances
   of `ProtoMock` to dispatch `WeatherAPI` functions.
@@ -138,15 +125,14 @@ defmodule ProtoMock do
   an ExUnit test process. When the test pid dies, the `ProtoMock` GenServer dies with it.
 
   `expect/4` and `stub/3` modify the `ProtoMock` GenServer state to tell the ProtoMock
-  how it will be used and how it should respond. `invoke/3` modifies GenServer state to
-  track actual invocations of protocol functions, with their arguments. `verify!/1`
-  compares actual invocations to the expectations defined via `expect/4`, and raises in
-  case of an expectations mismatch.
+  how it will be used and how it should respond. As a `ProtoMock` instance is used to
+  dispatch functions of a mocked protocol, the instance records each function invocation.
+  `verify!/1` compares the function invocations to the expectations defined via
+  `expect/4`, and raises in case of an expectations mismatch.
 
   ## Comparison to [Mox](https://hexdocs.pm/mox/Mox.html)
 
-  In order to feel familiar to developers, the ProtoMock API was loosely modeled after the
-  Mox API.
+  In order to feel familiar to developers, the ProtoMock API was modeled after the Mox API.
 
   Some differences worth noting:
 
@@ -158,12 +144,12 @@ defmodule ProtoMock do
     ExUnit test process (provided that the child process does not interact with other tests).
   * Rather than specificying expectations and stubs with a module name and a function name,
     e.g. `(MyAPIModule, :my_api_function ...)`, ProtoMock uses function captures, e.g.
-    `&MyApiProtocol.my_api_function/2`. As a benefit, mismatches between actual code and
+    `&MyApiProtocol.my_api_function/2`. As a benefit, api mismatches between actual code and
     expectations/stubs will be caught at compile time.
   * `stub_with` and `verify_on_exit` are not implemented, but may be implemented in future
     versions if there's interest.
 
-  ## Goals and Philosophy
+  ## Goals and philosophy
 
   ProtoMock aims to support and enable the notion that each test should be its own
   little parallel universe, without any modifiable state shared between tests. It
@@ -234,8 +220,27 @@ defmodule ProtoMock do
             pid: pid()
           }
 
-  @spec defimpl(module()) :: :ok
-  def defimpl(protocol) do
+  # child_spec/1 is injected by GenServer. We override it and set @doc false
+  # so that it doesn't appear in docs.
+  @doc false
+  def child_spec(_), do: nil
+
+  @doc """
+  Creates an implementation of `protocol` for the `ProtoMock` module, thereby preparing
+  `ProtoMock` to be used in mocking the protocol.
+
+  The implementation that is generated dispatches functions on `protocol` by proxying
+  them to an instance of `ProtoMock`.
+
+  The expected use of `create_impl/1` is to call it in within `test_helper.exs`, for each
+  protocol to be mocked using ProtoMock. For example:
+
+          ProtoMock.create_impl(MyProtocol)
+          ProtoMock.create_impl(MyOtherProtocol)
+
+  """
+  @spec create_impl(module()) :: :ok
+  def create_impl(protocol) do
     Protocol.assert_protocol!(protocol)
 
     if impl_exists?(protocol), do: raise(ProtoMock.ImplAlreadyDefinedError, protocol)
@@ -251,6 +256,18 @@ defmodule ProtoMock do
     :ok
   end
 
+  @doc """
+  Creates a new instance of `ProtoMock`
+
+  After creating a new `ProtoMock`, tests can add expectations and stubs to the instance
+  using `expect/4` and `stub/3`. With expectations and stubs in place, the `ProtoMock`
+  instance can be provided to the code under test, and used by the code under test
+  where it expects an implementation of any mocked protocols.
+
+  The `ProtoMock` module is a GenServer. `new/0` starts a new instance of the GenServer
+  that is linked to the calling process, typically an ExUnit test pid. When the test pid
+  exits, any child `ProtoMock` GenServers also exit.
+  """
   @spec new() :: t()
   def new() do
     state = %{stubs: %{}, expectations: [], invocations: []}
@@ -258,28 +275,125 @@ defmodule ProtoMock do
     %__MODULE__{pid: pid}
   end
 
+  @doc """
+  Allows `mocked_function` to be dispatched to `protomock` and proxied to `impl`.
+
+  When `mocked_function` is dispatched, the `impl` function will be invoked, using the
+  arguments passed to `mocked_function` (except for the first arg - see next paragraph).
+  The value returned from `impl` will be returned from `mocked_function`.
+
+  The `impl` function must have an arity that is one less than the arity of
+  `mocked_function`. Because `mocked_function` is a protocol function, its first
+  argument is the data structure that implements the protocol, which in this case is
+  `protomock`. The `impl` function has no need for this data structure, so it is omitted
+  from the `impl` argument list.
+
+  Unlike expectations, stubs are never verified.
+
+  If expectations and stubs are defined for the same `mocked_function`, the stub is
+  invoked only after all expectations are fulfilled.
+
+  ## Example
+
+  To allow `WeatherAPI.temperature/2` to be dispatched to a `ProtoMock` instance any
+  number of times:
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&WeatherAPI.temperature/2, fn _lat_long -> {:ok, 30} end)
+
+  `stub/3` will overwrite any previous calls to `stub/3`.
+  """
   @spec stub(t(), function(), function()) :: t()
   def stub(protomock, mocked_function, impl) do
     :ok = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
     protomock
   end
 
+  @doc """
+  Expects `mocked_function` to be dispatched to `protomock` `invocation_count` times.
+
+  When `mocked_function` is dispatched, the `impl` function will be invoked, using the
+  arguments passed to `mocked_function` (except for the first arg - see next paragraph).
+  The value returned from `impl` will be returned from `mocked_function`.
+
+  The `impl` function must have an arity that is one less than the arity of
+  `mocked_function`. Because `mocked_function` is a protocol function, its first
+  argument is the data structure that implements the protocol, which in this case is
+  `protomock`. The `impl` function has no need for this data structure, so it is omitted
+  from the `impl` argument list.
+
+  When `expect/4` is invoked, any previously declared stubs for the same `mocked_function`
+  will be removed. This ensures that `expect` will fail if the function is called more
+  than `invocation_count` times. If `stub/3` is invoked after `expect/4` for the same
+  `mocked_function`, the stub will be used after all expectations are fulfilled.
+
+  ## Examples
+
+  To expect `WeatherAPI.temperature/2` to be called once:
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&WeatherAPI.temperature/2, fn _lat_long -> {:ok, 30} end)
+
+  To expect `WeatherAPI.temperature/2` to be called five times:
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&WeatherAPI.temperature/2, 5, fn _lat_long -> {:ok, 30} end)
+
+  To expect `WeatherAPI.temperature/2` to not be called:
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&WeatherAPI.temperature/2, 0, fn _lat_long -> {:ok, 30} end)
+
+  `expect/4` can be invoked multiple times for the same `mocked_function`, permitting
+  different behaviors for each invocation. For example, we could test that our code
+  will try an API call three times before giving up:
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&WeatherAPI.temperature/2, 2, fn _ -> {:error, :unreachable} end)
+        |> ProtoMock.expect(&WeatherAPI.temperature/2, 1, fn _ -> {:ok, 30} end)
+
+      lat_long = {0.0, 0.0}
+
+      log = capture_log(fn ->
+        humanized_temp = HumanizedWeather.display_temp(lat_long, protomock)
+        assert humanized_temp == "It's currently 30 degrees"
+      end)
+
+      assert log =~ "attempt 1 failed"
+      assert log =~ "attempt 2 failed"
+      assert log =~ "attempt 3 succeeded"
+
+      ProtoMock.expect(protomock, &WeatherAPI.temperature/2, 3, fn _ -> {:error, :unreachable} end)
+
+      result = HumanizedWeather.display_temp(lat_long, protomock)
+      assert result == "Current temperature is unavailable"
+
+  """
   @spec expect(t(), function(), non_neg_integer(), function()) :: t()
   def expect(protomock, mocked_function, invocation_count \\ 1, impl) do
     :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
     protomock
   end
 
+  @doc false
   @spec invoke(t(), function(), [any()]) :: t()
   def invoke(protomock, mocked_function, args) do
     reply = GenServer.call(protomock.pid, {:invoke, mocked_function, args})
 
     case reply do
       {UnexpectedCallError, args} -> raise UnexpectedCallError, args
-      response -> response
+      _ -> reply
     end
   end
 
+  @doc """
+  Verifies that all expectations have been fulfilled.
+  """
   @spec verify!(t()) :: :ok
   def verify!(protomock) do
     state = GenServer.call(protomock.pid, :state)

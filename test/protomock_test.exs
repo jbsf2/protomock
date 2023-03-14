@@ -9,7 +9,7 @@ defmodule ProtoMockTest do
         def hello(impl)
       end
 
-      ProtoMock.defimpl(DefimplTest1)
+      ProtoMock.create_impl(DefimplTest1)
 
       protomock =
         ProtoMock.new()
@@ -25,18 +25,18 @@ defmodule ProtoMockTest do
         def hello(impl)
       end
 
-      ProtoMock.defimpl(DefimplTest2)
+      ProtoMock.create_impl(DefimplTest2)
 
       msg = ~r"ProtoMock already has an implementation defined for protocol #{DefimplTest2}"
 
       assert_raise ProtoMock.ImplAlreadyDefinedError, msg, fn ->
-        ProtoMock.defimpl(DefimplTest2)
+        ProtoMock.create_impl(DefimplTest2)
       end
     end
 
     test "when the argument is not a protocol, it raises an error" do
       assert_raise ArgumentError, "Map is not a protocol", fn ->
-        ProtoMock.defimpl(Map)
+        ProtoMock.create_impl(Map)
       end
     end
   end

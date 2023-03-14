@@ -12,4 +12,4 @@ defprotocol Calculator do
   def rand(calculator)
 end
 
-ProtoMock.defimpl(Calculator)
+ProtoMock.create_impl(Calculator)
