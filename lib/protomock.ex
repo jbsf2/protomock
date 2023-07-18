@@ -491,7 +491,8 @@ defmodule ProtoMock do
     {:reply, failure_messages, state}
   end
 
-  def handle_info(info, state) do
+  @impl true
+  def handle_info(_info, state) do
     {:noreply, state}
   end
 
