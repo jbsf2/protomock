@@ -385,6 +385,7 @@ defmodule ProtoMock do
 
       ref ->
         receive do
+          {^ref, {:protomock_error, e}} -> raise e
           {^ref, response} -> response
         end
     end
@@ -453,7 +454,11 @@ defmodule ProtoMock do
         ref = make_ref()
 
         Task.async(fn ->
-          response = Kernel.apply(impl, args)
+          response = try do
+            Kernel.apply(impl, args)
+          rescue
+            e -> {:protomock_error, e}
+          end
           send(from_pid, {ref, response})
         end)
 

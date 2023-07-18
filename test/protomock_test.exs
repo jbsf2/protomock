@@ -245,6 +245,16 @@ defmodule ProtoMockTest do
     end
   end
 
+  describe "invoke" do
+    test "raises errors that the impl function raises in the client" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> raise "crash" end)
+
+      assert_raise RuntimeError, "crash", fn -> Calculator.add(protomock, 1, 2) end
+    end
+  end
+
   defp mock_add() do
     mock_add(ProtoMock.new())
   end
