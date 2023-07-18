@@ -380,8 +380,13 @@ defmodule ProtoMock do
     reply = GenServer.call(protomock.pid, {:invoke, mocked_function, args})
 
     case reply do
-      {UnexpectedCallError, args} -> raise UnexpectedCallError, args
-      _ -> reply
+      {UnexpectedCallError, args} ->
+        raise UnexpectedCallError, args
+
+      ref ->
+        receive do
+          {^ref, response} -> response
+        end
     end
   end
 
@@ -430,7 +435,7 @@ defmodule ProtoMock do
   end
 
   @impl true
-  def handle_call({:invoke, mocked_function, args}, _from, state) do
+  def handle_call({:invoke, mocked_function, args}, {from_pid, _}, state) do
     invocation = %{function: mocked_function, args: args}
     updated_invocations = [invocation | state.invocations]
 
@@ -445,7 +450,12 @@ defmodule ProtoMock do
 
       false ->
         {impl, updated_expectations} = next_impl(state, mocked_function)
-        response = Kernel.apply(impl, args)
+        ref = make_ref()
+
+        Task.async(fn ->
+          response = Kernel.apply(impl, args)
+          send(from_pid, {ref, response})
+        end)
 
         updated_state = %{
           state
@@ -453,7 +463,7 @@ defmodule ProtoMock do
             expectations: updated_expectations
         }
 
-        {:reply, response, updated_state}
+        {:reply, ref, updated_state}
     end
   end
 
@@ -474,6 +484,10 @@ defmodule ProtoMock do
       end)
 
     {:reply, failure_messages, state}
+  end
+
+  def handle_info(info, state) do
+    {:noreply, state}
   end
 
   # ----- private

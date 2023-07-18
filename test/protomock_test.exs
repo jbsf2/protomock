@@ -231,6 +231,18 @@ defmodule ProtoMockTest do
 
       assert Calculator.add(protomock, 1, 2) == :second
     end
+
+    test "allows recursive calls" do
+      protomock = ProtoMock.new()
+
+      protomock
+      |> ProtoMock.stub(&Calculator.add/3, fn
+        1, 2 -> {:first, Calculator.add(protomock, 3, 4)}
+        3, 4 -> :second
+      end)
+
+      assert Calculator.add(protomock, 1, 2) == {:first, :second}
+    end
   end
 
   defp mock_add() do
