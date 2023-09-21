@@ -163,6 +163,7 @@ defmodule ProtoMock do
 
   """
   use GenServer
+  alias Hammox.TypeEngine
 
   defmodule VerificationError do
     defexception [:message]
@@ -300,8 +301,83 @@ defmodule ProtoMock do
   """
   @spec stub(t(), function(), function()) :: t()
   def stub(protomock, mocked_function, impl) do
+    validate_implementation_setup!(mocked_function, impl)
+
     :ok = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
     protomock
+  end
+
+  defp validate_implementation_setup!(mocked_function, impl) do
+    case validate_implementation_setup(mocked_function, impl) do
+      :ok ->
+        :ok
+
+      {:error, {:function_not_in_protocol, {function, protocol}}} ->
+        raise "function #{inspect(function)} not in protocol #{protocol}"
+
+      {:error, {:mismatched_arity, protocol_arity: protocol_arity, impl_arity: impl_arity}} ->
+        raise """
+        Function #{inspect(mocked_function)} was provided an implementation with the wrong arity:
+
+        A #{protocol_arity} arity function should be provided a #{protocol_arity - 1} arity implementation
+
+        But instead it was provided a function which had #{impl_arity} arity
+        """
+
+      {:error, other} ->
+        raise inspect(other)
+    end
+  end
+
+  defp validate_implementation_setup(mocked_function, impl) do
+    with {:ok, function_description} <- describe_function(mocked_function),
+         :ok <- validate_protocol_function(function_description, mocked_function),
+         :ok <- validate_arity(function_description, impl) do
+      :ok
+    end
+  end
+
+  defp validate_arity(function_description, impl) when is_function(impl) do
+    impl_arity = Function.info(impl)[:arity]
+
+    if impl_arity + 1 == function_description.arity do
+      :ok
+    else
+      {:error,
+       {:mismatched_arity, protocol_arity: function_description.arity, impl_arity: impl_arity}}
+    end
+  end
+
+  defp validate_arity(_, impl) do
+    {:error, {:is_not_a_function, impl}}
+  end
+
+  defp validate_protocol_function(function_description, function) do
+    with :ok <- validate_module_is_protocol(function_description.module) do
+      if {function_description.name, function_description.arity} in function_description.module.__protocol__(
+           :functions
+         ) do
+        :ok
+      else
+        {:error, {:function_not_in_protocol, {function, function_description.module}}}
+      end
+    end
+  end
+
+  defp validate_module_is_protocol(module) do
+    # try do
+    Protocol.assert_protocol!(module)
+    # end
+  end
+
+  defp describe_function(function) do
+    case Function.info(function) do
+      [{:module, module}, {:name, name}, {:arity, arity} | _rest] ->
+        {:ok, %{module: module, name: name, arity: arity}}
+
+      other ->
+        {:error, {:invalid_function_info, other}}
+    end
   end
 
   @doc """
@@ -370,6 +446,7 @@ defmodule ProtoMock do
   """
   @spec expect(t(), function(), non_neg_integer(), function()) :: t()
   def expect(protomock, mocked_function, invocation_count \\ 1, impl) do
+    validate_implementation_setup!(mocked_function, impl)
     :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
     protomock
   end
@@ -385,10 +462,176 @@ defmodule ProtoMock do
 
       ref ->
         receive do
-          {^ref, {:protomock_error, e}} -> raise e
-          {^ref, response} -> response
+          {^ref, {:protomock_error, e}} ->
+            raise e
+
+          {^ref, return_value} ->
+            check([protomock] ++ args, return_value, mocked_function)
+            return_value
         end
     end
+  end
+
+  defp check(args, return_value, function) do
+    with {:ok, function_description} <- describe_function(function),
+         {:ok, specs} <- Code.Typespec.fetch_specs(function_description.module) do
+      function_name = function_description.name
+      arity = function_description.arity
+
+      typespecs =
+        specs
+        |> Enum.find_value([], fn
+          {{^function_name, ^arity}, typespecs} -> typespecs
+          _ -> false
+        end)
+        |> Enum.map(&guards_to_annotated_types(&1))
+        |> Enum.map(&Hammox.Utils.replace_user_types(&1, function_description.module))
+
+      result =
+        for typespec <- typespecs, reduce: [] do
+          :ok ->
+            :ok
+
+          other ->
+            case match_call(args, return_value, typespec) do
+              :ok -> :ok
+              error -> [error | other]
+            end
+        end
+
+      case result do
+        :ok -> :ok
+        [] -> :ok
+        errors -> raise describe_type_error(List.first(errors), function)
+      end
+    end
+  end
+
+  defp nth(0), do: "first argument"
+  defp nth(1), do: "second argument"
+  defp nth(2), do: "third argument"
+  defp nth(n) when n < 10, do: "#{n + 1}th argument"
+  defp nth(n), do: "argument at position #{n}"
+
+  defp describe_type_error(
+         {:error, [{:arg_type_mismatch, position, value, _type} | _rest]},
+         function
+       ) do
+    """
+    Invalid argument passed to function #{inspect(function)}:
+
+    #{nth(position)} is invalid according to your typespecs
+
+    value: #{inspect(value)}
+    """
+    |> tap(&IO.puts/1)
+  end
+
+  defp describe_type_error({:error, [{:return_type_mismatch, value, _type} | _rest]}, function) do
+    """
+    Invalid return value returned from fake implementation for #{inspect(function)}:
+
+    value: #{inspect(value)}
+    """
+    |> tap(&IO.puts/1)
+  end
+
+  defp describe_type_error(error, function) do
+    "there is a runtime type error calling #{inspect(function)} #{inspect(error)}"
+    |> tap(&IO.puts/1)
+  end
+
+  defp match_call(args, return_value, typespec) do
+    # Even though the last clause is redundant, it reads better this way.
+    # credo:disable-for-next-line Credo.Check.Refactor.RedundantWithClauseResult
+    with :ok <- match_args(args, typespec),
+         :ok <- match_return_value(return_value, typespec) do
+      :ok
+    end
+  end
+
+  defp arg_typespec(function_typespec, arg_index) do
+    {:type, _, :fun, [{:type, _, :product, arg_typespecs}, _]} = function_typespec
+    Enum.at(arg_typespecs, arg_index)
+  end
+
+  defp match_args([], _typespec) do
+    :ok
+  end
+
+  # credo:disable-for-lines:24 Credo.Check.Refactor.Nesting
+  defp match_args(args, typespec) do
+    result =
+      args
+      |> Enum.zip(0..(length(args) - 1))
+      |> Enum.map(fn {arg, index} ->
+        arg_type = arg_typespec(typespec, index)
+
+        case TypeEngine.match_type(arg, arg_type) do
+          {:error, reasons} ->
+            {:error, [{:arg_type_mismatch, index, arg, arg_type} | reasons]}
+
+          :ok ->
+            :ok
+        end
+      end)
+      |> Enum.max_by(fn
+        {:error, reasons} -> length(reasons)
+        :ok -> 0
+      end)
+
+    result
+  end
+
+  defp match_return_value(return_value, typespec) do
+    {:type, _, :fun, [_, return_type]} = typespec
+
+    result =
+      case TypeEngine.match_type(return_value, return_type) do
+        {:error, reasons} ->
+          {:error, [{:return_type_mismatch, return_value, return_type} | reasons]}
+
+        :ok ->
+          :ok
+      end
+
+    result
+  end
+
+  defp guards_to_annotated_types({:type, _, :fun, _} = typespec), do: typespec
+
+  defp guards_to_annotated_types(
+         {:type, _, :bounded_fun,
+          [{:type, _, :fun, [{:type, _, :product, args}, return_value]}, constraints]}
+       ) do
+    type_lookup_map =
+      constraints
+      |> Enum.map(fn {:type, _, :constraint,
+                      [{:atom, _, :is_subtype}, [{:var, _, var_name}, type]]} ->
+        {var_name, type}
+      end)
+      |> Enum.into(%{})
+
+    new_args =
+      Enum.map(
+        args,
+        &annotate_vars(&1, type_lookup_map)
+      )
+
+    new_return_value = annotate_vars(return_value, type_lookup_map)
+
+    {:type, 0, :fun, [{:type, 0, :product, new_args}, new_return_value]}
+  end
+
+  defp annotate_vars(type, type_lookup_map) do
+    Hammox.Utils.type_map(type, fn
+      {:var, _, var_name} ->
+        type_for_var = Map.fetch!(type_lookup_map, var_name)
+        {:ann_type, 0, [{:var, 0, var_name}, type_for_var]}
+
+      other ->
+        other
+    end)
   end
 
   @doc """
@@ -454,11 +697,13 @@ defmodule ProtoMock do
         ref = make_ref()
 
         Task.async(fn ->
-          response = try do
-            Kernel.apply(impl, args)
-          rescue
-            e -> {:protomock_error, e}
-          end
+          response =
+            try do
+              Kernel.apply(impl, args)
+            rescue
+              e -> {:protomock_error, e}
+            end
+
           send(from_pid, {ref, response})
         end)
 
