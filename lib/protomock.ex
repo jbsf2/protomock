@@ -163,7 +163,7 @@ defmodule ProtoMock do
 
   """
   use GenServer
-  alias Hammox.TypeEngine
+  alias ProtoMock.TypeEngine
 
   defmodule VerificationError do
     defexception [:message]
@@ -485,7 +485,7 @@ defmodule ProtoMock do
           _ -> false
         end)
         |> Enum.map(&guards_to_annotated_types(&1))
-        |> Enum.map(&Hammox.Utils.replace_user_types(&1, function_description.module))
+        |> Enum.map(&TypeEngine.replace_user_types(&1, function_description.module))
 
       result =
         for typespec <- typespecs, reduce: [] do
@@ -624,7 +624,7 @@ defmodule ProtoMock do
   end
 
   defp annotate_vars(type, type_lookup_map) do
-    Hammox.Utils.type_map(type, fn
+    TypeEngine.type_map(type, fn
       {:var, _, var_name} ->
         type_for_var = Map.fetch!(type_lookup_map, var_name)
         {:ann_type, 0, [{:var, 0, var_name}, type_for_var]}
