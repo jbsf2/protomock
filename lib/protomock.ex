@@ -524,7 +524,6 @@ defmodule ProtoMock do
 
     value: #{inspect(value)}
     """
-    |> tap(&IO.puts/1)
   end
 
   defp describe_type_error({:error, [{:return_type_mismatch, value, _type} | _rest]}, function) do
@@ -533,12 +532,10 @@ defmodule ProtoMock do
 
     value: #{inspect(value)}
     """
-    |> tap(&IO.puts/1)
   end
 
   defp describe_type_error(error, function) do
     "there is a runtime type error calling #{inspect(function)} #{inspect(error)}"
-    |> tap(&IO.puts/1)
   end
 
   defp match_call(args, return_value, typespec) do
