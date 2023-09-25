@@ -1,15 +1,3 @@
-defprotocol ExpectationOrderTest do
-  def test(subject)
-end
-
-ProtoMock.create_impl(ExpectationOrderTest)
-
-defprotocol RecursiveTest do
-  def countdown(subject, number)
-end
-
-ProtoMock.create_impl(RecursiveTest)
-
 defmodule ProtoMockTest do
   use ExUnit.Case
 
@@ -123,21 +111,21 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "crashes with unknown protocol function" do
+    test "raises when the function doesn't exist in the protocol" do
       assert_raise RuntimeError, fn ->
         ProtoMock.new()
         |> ProtoMock.expect(&Calculator.add/4, 1, fn x, y, z -> x + y + z end)
       end
     end
 
-    test "crashes when provided a wrong-arity implementation" do
+    test "raises when provided a wrong-arity implementation" do
       assert_raise RuntimeError, fn ->
         ProtoMock.new()
         |> ProtoMock.expect(&Calculator.add/3, 1, fn x, y, z -> x + y + z end)
       end
     end
 
-    test "crashes when bad return value is seen" do
+    test "raises when bad return value is seen" do
       assert_raise RuntimeError, fn ->
         protomock =
           ProtoMock.new()
@@ -147,7 +135,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "crashes when bad arguments are seen" do
+    test "raises when bad arguments are seen" do
       assert_raise RuntimeError, fn ->
         protomock =
           ProtoMock.new()
@@ -234,6 +222,12 @@ defmodule ProtoMockTest do
   end
 
   describe "stub" do
+    defprotocol StubOrderTest do
+      def test(subject)
+    end
+
+    ProtoMock.create_impl(StubOrderTest)
+
     test "allows repeated invocations" do
       protomock = stub_add()
 
@@ -245,40 +239,6 @@ defmodule ProtoMockTest do
       protomock = stub_add()
 
       assert ProtoMock.verify!(protomock) == :ok
-    end
-
-    test "crashes with unknown protocol function" do
-      assert_raise RuntimeError, fn ->
-        ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/4, fn x, y, z -> x + y + z end)
-      end
-    end
-
-    test "crashes when provided a wrong-arity implementation" do
-      assert_raise RuntimeError, fn ->
-        ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
-      end
-    end
-
-    test "crashes when bad return value is seen" do
-      assert_raise RuntimeError, fn ->
-        protomock =
-          ProtoMock.new()
-          |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :bad_return end)
-
-        Calculator.add(protomock, 1, 2)
-      end
-    end
-
-    test "crashes when bad arguments are seen" do
-      assert_raise RuntimeError, fn ->
-        protomock =
-          ProtoMock.new()
-          |> ProtoMock.stub(&Calculator.add/3, fn x, _y -> x end)
-
-        Calculator.add(protomock, 1, :bad_argument)
-      end
     end
 
     test "gives expectations precedence" do
@@ -293,26 +253,32 @@ defmodule ProtoMockTest do
     test "a stub is called after all expectations are fulfilled" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.stub(&ExpectationOrderTest.test/1, fn -> :stubbed end)
-        |> ProtoMock.expect(&ExpectationOrderTest.test/1, 3, fn -> :expected end)
+        |> ProtoMock.stub(&StubOrderTest.test/1, fn -> :stubbed end)
+        |> ProtoMock.expect(&StubOrderTest.test/1, 3, fn -> :expected end)
 
-      assert ExpectationOrderTest.test(protomock) == :expected
-      assert ExpectationOrderTest.test(protomock) == :expected
-      assert ExpectationOrderTest.test(protomock) == :expected
-      assert ExpectationOrderTest.test(protomock) == :stubbed
-      assert ExpectationOrderTest.test(protomock) == :stubbed
+      assert StubOrderTest.test(protomock) == :expected
+      assert StubOrderTest.test(protomock) == :expected
+      assert StubOrderTest.test(protomock) == :expected
+      assert StubOrderTest.test(protomock) == :stubbed
+      assert StubOrderTest.test(protomock) == :stubbed
     end
 
     test "overwrites earlier stubs" do
       protomock =
         ProtoMock.new()
-        |> ProtoMock.stub(&ExpectationOrderTest.test/1, fn -> :first end)
-        |> ProtoMock.stub(&ExpectationOrderTest.test/1, fn -> :second end)
+        |> ProtoMock.stub(&StubOrderTest.test/1, fn -> :first end)
+        |> ProtoMock.stub(&StubOrderTest.test/1, fn -> :second end)
 
-      assert ExpectationOrderTest.test(protomock) == :second
+      assert StubOrderTest.test(protomock) == :second
     end
 
     test "allows recursive calls" do
+      defprotocol RecursiveTest do
+        def countdown(subject, number)
+      end
+
+      ProtoMock.create_impl(RecursiveTest)
+
       protomock = ProtoMock.new()
 
       protomock
@@ -322,6 +288,40 @@ defmodule ProtoMockTest do
       end)
 
       assert RecursiveTest.countdown(protomock, 3) == [3, 2, 1, 0]
+    end
+
+    test "raises when the function doesn't exist in the protocol" do
+      assert_raise RuntimeError, fn ->
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/4, fn x, y, z -> x + y + z end)
+      end
+    end
+
+    test "raises when provided a wrong-arity implementation" do
+      assert_raise RuntimeError, fn ->
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
+      end
+    end
+
+    test "raises when bad return value is seen" do
+      assert_raise RuntimeError, fn ->
+        protomock =
+          ProtoMock.new()
+          |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :bad_return end)
+
+        Calculator.add(protomock, 1, 2)
+      end
+    end
+
+    test "raises when bad arguments are seen" do
+      assert_raise RuntimeError, fn ->
+        protomock =
+          ProtoMock.new()
+          |> ProtoMock.stub(&Calculator.add/3, fn x, _y -> x end)
+
+        Calculator.add(protomock, 1, :bad_argument)
+      end
     end
   end
 
