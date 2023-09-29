@@ -15,7 +15,7 @@ defmodule ProtoMock do
   * Compiler detection of api errors
 
   It is not expected that ProtoMock would be useful for more traditional protocol use
-  cases, wherein protocols such as `Enum` provide a common interface for operating on
+  cases, wherein protocols such as `Enumerable` provide a common interface for operating on
   disparate data structures. In such situations, there is no value in testing with mocks,
   therefore ProtoMock has no role.
 
@@ -301,83 +301,11 @@ defmodule ProtoMock do
   """
   @spec stub(t(), function(), function()) :: t()
   def stub(protomock, mocked_function, impl) do
-    validate_implementation_setup!(mocked_function, impl)
+    assert_protomock_implements!(mocked_function)
+    validate_arity!(mocked_function, impl)
 
     :ok = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
     protomock
-  end
-
-  defp validate_implementation_setup!(mocked_function, impl) do
-    case validate_implementation_setup(mocked_function, impl) do
-      :ok ->
-        :ok
-
-      {:error, {:function_not_in_protocol, {function, protocol}}} ->
-        raise "function #{inspect(function)} not in protocol #{protocol}"
-
-      {:error, {:mismatched_arity, protocol_arity: protocol_arity, impl_arity: impl_arity}} ->
-        raise """
-        Function #{inspect(mocked_function)} was provided an implementation with the wrong arity:
-
-        A #{protocol_arity} arity function should be provided a #{protocol_arity - 1} arity implementation
-
-        But instead it was provided a function which had #{impl_arity} arity
-        """
-
-      {:error, other} ->
-        raise inspect(other)
-    end
-  end
-
-  defp validate_implementation_setup(mocked_function, impl) do
-    with {:ok, function_description} <- describe_function(mocked_function),
-         :ok <- validate_protocol_function(function_description, mocked_function),
-         :ok <- validate_arity(function_description, impl) do
-      :ok
-    end
-  end
-
-  defp validate_arity(function_description, impl) when is_function(impl) do
-    impl_arity = Function.info(impl)[:arity]
-
-    if impl_arity + 1 == function_description.arity do
-      :ok
-    else
-      {:error,
-       {:mismatched_arity, protocol_arity: function_description.arity, impl_arity: impl_arity}}
-    end
-  end
-
-  defp validate_arity(_, impl) do
-    {:error, {:is_not_a_function, impl}}
-  end
-
-  defp validate_protocol_function(function_description, function) do
-    with :ok <- validate_module_is_protocol(function_description.module) do
-      if {function_description.name, function_description.arity} in function_description.module.__protocol__(
-           :functions
-         ) do
-        :ok
-      else
-        {:error, {:function_not_in_protocol, {function, function_description.module}}}
-      end
-    end
-  end
-
-  defp validate_module_is_protocol(module) do
-    # try do
-    Protocol.assert_protocol!(module)
-    # end
-  end
-
-  defp describe_function(function) do
-    case Function.info(function) do
-      [{:module, module}, {:name, name}, {:arity, arity} | _rest] ->
-        {:ok, %{module: module, name: name, arity: arity}}
-
-      other ->
-        {:error, {:invalid_function_info, other}}
-    end
   end
 
   @doc """
@@ -446,7 +374,9 @@ defmodule ProtoMock do
   """
   @spec expect(t(), function(), non_neg_integer(), function()) :: t()
   def expect(protomock, mocked_function, invocation_count \\ 1, impl) do
-    validate_implementation_setup!(mocked_function, impl)
+    assert_protomock_implements!(mocked_function)
+    validate_arity!(mocked_function, impl)
+
     :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
     protomock
   end
@@ -862,4 +792,94 @@ defmodule ProtoMock do
 
   @spec module_exists?(module()) :: boolean()
   defp module_exists?(module), do: function_exported?(module, :__info__, 1)
+
+  defp describe_function(function) do
+    case Function.info(function) do
+      [{:module, module}, {:name, name}, {:arity, arity} | _rest] ->
+        {:ok, %{module: module, name: name, arity: arity}}
+
+      other ->
+        {:error, {:invalid_function_info, other}}
+    end
+  end
+
+  @spec validate_arity!(function(), function()) :: :ok
+  defp validate_arity!(mocked_function, impl) when is_function(impl) do
+    original_arity = Function.info(mocked_function)[:arity]
+    impl_arity = Function.info(impl)[:arity]
+
+    case impl_arity + 1 == original_arity do
+      true ->
+        :ok
+
+      false ->
+        message = """
+        #{inspect(impl)} has arity #{impl_arity}, but #{inspect(mocked_function)} has arity #{original_arity}.
+        The arity of #{inspect(impl)} must be one less than the arity of #{inspect(mocked_function)}.
+        """
+
+        raise ArgumentError.exception(message)
+    end
+  end
+
+  @spec assert_protomock_implements!(function()) :: :ok
+  defp assert_protomock_implements!(function) do
+    [{:module, module}, {:name, name}, {:arity, arity} | _rest] =
+      try do
+         Function.info(function)
+      rescue
+        _ in ArgumentError ->
+          message = """
+          #{inspect(function)} is not a function. To pass a function to ProtoMock.stub/3 or ProtoMock.expect/4,
+          use a function capture, for example &Enumerable.count/1
+
+          If you find this puzzling, double check for compiler warnings related to #{inspect(function)}.
+          """
+
+          raise ArgumentError.exception(message)
+      end
+
+    try do
+      :ok = Protocol.assert_protocol!(module)
+    rescue
+      _ in ArgumentError ->
+        message = """
+        #{module} is not recognized as a protocol.
+
+        If you find this puzzling, double-check for compiler warnings related to #{inspect(function)}.
+        Perhaps you're missing an alias or have a misspelling.
+        """
+
+        raise ArgumentError.exception(message)
+    end
+
+    try do
+      :ok = Protocol.assert_impl!(module, __MODULE__)
+    rescue
+      _ in ArgumentError ->
+        message = """
+        ProtoMock does not implement the #{module} protocol. Use ProtoMock.create_impl/1 to create an implementation.
+
+        If you find this puzzling, double-check for compiler warnings related to #{inspect(function)}.
+        """
+
+        raise ArgumentError.exception(message)
+    end
+
+    case function_exported?(module, name, arity) do
+      true ->
+        :ok
+
+      false ->
+        message = """
+        #{inspect(function)} is not a function exported by #{module}.
+
+        Look for compiler warnings related to #{inspect(function)}.
+
+        Double-check your function name and function arity.
+        """
+
+        raise ArgumentError.exception(message)
+    end
+  end
 end

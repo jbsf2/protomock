@@ -111,15 +111,28 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "raises when the function doesn't exist in the protocol" do
-      assert_raise RuntimeError, fn ->
-        ProtoMock.new()
-        |> ProtoMock.expect(&Calculator.add/4, 1, fn x, y, z -> x + y + z end)
+    test "verifies that the mocked function is a member function of a protocol implemented by ProtoMock" do
+      protomock = ProtoMock.new()
+
+      assert_raise ArgumentError, ~r/not a function/, fn ->
+        ProtoMock.expect(protomock, :not_a_function, fn -> nil end)
+      end
+
+      assert_raise ArgumentError, ~r/is not recognized/, fn ->
+        ProtoMock.expect(protomock, &Map.new/0, fn -> nil end)
+      end
+
+      assert_raise ArgumentError, ~r/does not implement/, fn ->
+        ProtoMock.expect(protomock, &Enumerable.count/1, fn -> nil end)
+      end
+
+      assert_raise ArgumentError, ~r/not a function exported by/, fn ->
+        ProtoMock.expect(protomock, &Calculator.add/4, fn -> nil end)
       end
     end
 
-    test "raises when provided a wrong-arity implementation" do
-      assert_raise RuntimeError, fn ->
+    test "raises when the implementation has the wrong arity" do
+      assert_raise ArgumentError, fn ->
         ProtoMock.new()
         |> ProtoMock.expect(&Calculator.add/3, 1, fn x, y, z -> x + y + z end)
       end
@@ -290,15 +303,28 @@ defmodule ProtoMockTest do
       assert RecursiveTest.countdown(protomock, 3) == [3, 2, 1, 0]
     end
 
-    test "raises when the function doesn't exist in the protocol" do
-      assert_raise RuntimeError, fn ->
-        ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/4, fn x, y, z -> x + y + z end)
+    test "verifies that the mocked function is a member function of a protocol implemented by ProtoMock" do
+      protomock = ProtoMock.new()
+
+      assert_raise ArgumentError, ~r/not a function/, fn ->
+        ProtoMock.stub(protomock, :not_a_function, fn -> nil end)
+      end
+
+      assert_raise ArgumentError, ~r/is not recognized/, fn ->
+        ProtoMock.stub(protomock, &Map.new/0, fn -> nil end)
+      end
+
+      assert_raise ArgumentError, ~r/does not implement/, fn ->
+        ProtoMock.stub(protomock, &Enumerable.count/1, fn -> nil end)
+      end
+
+      assert_raise ArgumentError, ~r/not a function exported by/, fn ->
+        ProtoMock.stub(protomock, &Calculator.add/4, fn -> nil end)
       end
     end
 
-    test "raises when provided a wrong-arity implementation" do
-      assert_raise RuntimeError, fn ->
+    test "raises when the implementation has the wrong arity" do
+      assert_raise ArgumentError, fn ->
         ProtoMock.new()
         |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
       end
