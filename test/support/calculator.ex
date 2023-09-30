@@ -7,5 +7,3 @@ defprotocol Calculator do
 
   def sqrt(calulator, x)
 end
-
-ProtoMock.create_impl(Calculator)

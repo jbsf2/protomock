@@ -186,8 +186,6 @@ defmodule ProtoMock do
     end
   end
 
-  @typep quoted_expression :: {atom() | tuple(), keyword(), list() | atom()}
-
   @typep expectation :: %{
            mocked_function: function(),
            impl: function(),
@@ -219,6 +217,11 @@ defmodule ProtoMock do
   @doc false
   def child_spec(_), do: nil
 
+  @doc false
+  def start() do
+    ProtoMock.ImplCreator.start_link()
+  end
+
   @doc """
   Creates an implementation of `protocol` for the `ProtoMock` module, thereby preparing
   `ProtoMock` to be used in mocking the protocol.
@@ -235,22 +238,8 @@ defmodule ProtoMock do
   """
   @spec create_impl(module()) :: :ok
   def create_impl(protocol) do
-    Protocol.assert_protocol!(protocol)
-
-    if impl_exists?(protocol) do
-      message = "ProtoMock already has an implementation defined for protocol #{protocol}"
-      raise ArgumentError, message
-    end
-
-    quoted =
-      quote do
-        defimpl unquote(protocol), for: unquote(ProtoMock) do
-          (unquote_splicing(impl_functions(protocol)))
-        end
-      end
-
-    {_term, _binding} = Code.eval_quoted(quoted)
-    :ok
+    ensure_protomock_started!()
+    ProtoMock.ImplCreator.ensure_impl_created(protocol)
   end
 
   @doc """
@@ -621,37 +610,6 @@ defmodule ProtoMock do
     "expected #{function_name} to be called #{expected_times} but it was called #{actual_times}"
   end
 
-  # For each function defined by the given protocol, `impl_functions` generates
-  # an implementation function that proxies to a ProtoMock.
-  @spec impl_functions(module()) :: [quoted_expression()]
-  defp impl_functions(protocol) do
-    protocol.__protocol__(:functions)
-    |> Enum.map(fn {function_name, arity} ->
-      protomock = Macro.var(:protomock, __MODULE__)
-      mocked_function = Function.capture(protocol, function_name, arity)
-      args = Range.new(1, arity - 1, 1) |> Enum.map(&Macro.var(:"arg#{&1}", __MODULE__))
-
-      quote do
-        def unquote(function_name)(unquote(protomock), unquote_splicing(args)) do
-          ProtoMock.invoke(
-            protomock,
-            unquote(mocked_function),
-            unquote(args)
-          )
-        end
-      end
-    end)
-  end
-
-  @spec impl_exists?(module()) :: boolean()
-  defp impl_exists?(protocol) do
-    impl = Module.concat(protocol, ProtoMock)
-    module_exists?(impl) and impl.__impl__(:protocol) == protocol
-  end
-
-  @spec module_exists?(module()) :: boolean()
-  defp module_exists?(module), do: function_exported?(module, :__info__, 1)
-
   @spec validate_arity!(function(), function()) :: :ok
   defp validate_arity!(mocked_function, impl) when is_function(impl) do
     original_arity = Function.info(mocked_function)[:arity]
@@ -729,6 +687,16 @@ defmodule ProtoMock do
         """
 
         raise ArgumentError.exception(message)
+    end
+  end
+
+  defp ensure_protomock_started!() do
+    if Process.whereis(ProtoMock.ImplCreator) == nil do
+      raise RuntimeError, """
+      ProtoMock is not started. Call ProtoMock.start() before using ProtoMock.create_impl/1.
+
+      `test_helper.exs` is a good place to call ProtoMock.start().
+      """
     end
   end
 end

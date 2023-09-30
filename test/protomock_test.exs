@@ -20,18 +20,28 @@ defmodule ProtoMockTest do
       assert ProtoMock.verify!(protomock) == :ok
     end
 
-    test "when there is already an impl defined, it raises an error" do
-      defprotocol DefimplTest2 do
+    test "is idempotent" do
+      defprotocol CreateImplTest2 do
         def hello(impl)
       end
 
-      ProtoMock.create_impl(DefimplTest2)
+      assert :ok == ProtoMock.create_impl(CreateImplTest2)
 
-      msg = ~r"ProtoMock already has an implementation defined for protocol #{DefimplTest2}"
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello, world!" end)
 
-      assert_raise ArgumentError, msg, fn ->
-        ProtoMock.create_impl(DefimplTest2)
-      end
+      assert CreateImplTest2.hello(protomock) == "hello, world!"
+      assert ProtoMock.verify!(protomock) == :ok
+
+      assert :ok == ProtoMock.create_impl(CreateImplTest2)
+
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello again!" end)
+
+      assert CreateImplTest2.hello(protomock) == "hello again!"
+      assert ProtoMock.verify!(protomock) == :ok
     end
 
     test "when the argument is not a protocol, it raises an error" do
