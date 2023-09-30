@@ -204,7 +204,8 @@ defmodule ProtoMock do
   @typep state :: %{
            stubs: %{function() => function()},
            expectations: [expectation()],
-           invocations: [invocation()]
+           invocations: [invocation()],
+           check_runtime_types: boolean()
          }
 
   defstruct [:pid]
@@ -265,8 +266,14 @@ defmodule ProtoMock do
   exits, any child `ProtoMock` GenServers also exit.
   """
   @spec new() :: t()
-  def new() do
-    state = %{stubs: %{}, expectations: [], invocations: []}
+  def new(opts \\ []) do
+    state = %{
+      stubs: %{},
+      expectations: [],
+      invocations: [],
+      check_runtime_types: Keyword.get(opts, :check_runtime_types, false)
+    }
+
     {:ok, pid} = GenServer.start_link(__MODULE__, state)
     %__MODULE__{pid: pid}
   end
@@ -397,12 +404,6 @@ defmodule ProtoMock do
             raise e
 
           {^ref, return_value} ->
-            RuntimeTypeChecker.validate_invocation!(
-              mocked_function,
-              [protomock] ++ args,
-              return_value
-            )
-
             return_value
         end
     end
@@ -474,7 +475,17 @@ defmodule ProtoMock do
         Task.async(fn ->
           response =
             try do
-              Kernel.apply(impl, args)
+              return_value = Kernel.apply(impl, args)
+
+              if state.check_runtime_types do
+                RuntimeTypeChecker.validate_invocation!(
+                  mocked_function,
+                  [self()] ++ args,
+                  return_value
+                )
+              end
+
+              return_value
             rescue
               e -> {:protomock_error, e}
             end

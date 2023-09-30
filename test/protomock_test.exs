@@ -130,49 +130,6 @@ defmodule ProtoMockTest do
         ProtoMock.expect(protomock, &Calculator.add/4, fn -> nil end)
       end
     end
-
-    test "raises when the implementation has the wrong arity" do
-      assert_raise ArgumentError, fn ->
-        ProtoMock.new()
-        |> ProtoMock.expect(&Calculator.add/3, 1, fn x, y, z -> x + y + z end)
-      end
-    end
-
-    test "raises when the implementation returns the wrong type" do
-      assert_raise RuntimeError, fn ->
-        protomock =
-          ProtoMock.new()
-          |> ProtoMock.expect(&Calculator.add/3, 1, fn _x, _y -> :bad_return end)
-
-        Calculator.add(protomock, 1, 2)
-      end
-    end
-
-    test "raises when an argument has an invalid type" do
-      assert_raise RuntimeError, fn ->
-        protomock =
-          ProtoMock.new()
-          |> ProtoMock.expect(&Calculator.add/3, 1, fn x, _y -> x end)
-
-        Calculator.add(protomock, 1, :bad_argument)
-      end
-    end
-
-    test "does not raise when mocked function does not have a typespec" do
-      protomock =
-        ProtoMock.new()
-        |> ProtoMock.expect(&Calculator.sqrt/2, 1, fn _x -> "not a float" end)
-
-      assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
-    end
-
-    test "does not raise when mocked protocol has no typespecs" do
-      protomock =
-        ProtoMock.new()
-        |> ProtoMock.expect(&NoTypespecs.do_something/2, 1, fn x -> x end)
-
-      assert NoTypespecs.do_something(protomock, 3) == 3
-    end
   end
 
   describe "verify" do
@@ -326,49 +283,6 @@ defmodule ProtoMockTest do
         ProtoMock.stub(protomock, &Calculator.add/4, fn -> nil end)
       end
     end
-
-    test "raises when the implementation has the wrong arity" do
-      assert_raise ArgumentError, fn ->
-        ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
-      end
-    end
-
-    test "raises when the implementation returns the wrong type" do
-      assert_raise RuntimeError, fn ->
-        protomock =
-          ProtoMock.new()
-          |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :bad_return end)
-
-        Calculator.add(protomock, 1, 2)
-      end
-    end
-
-    test "raises when an argument has an invalid type" do
-      assert_raise RuntimeError, fn ->
-        protomock =
-          ProtoMock.new()
-          |> ProtoMock.stub(&Calculator.add/3, fn x, _y -> x end)
-
-        Calculator.add(protomock, 1, :bad_argument)
-      end
-    end
-
-    test "does not raise when mocked function does not have a typespec" do
-      protomock =
-        ProtoMock.new()
-        |> ProtoMock.stub(&Calculator.sqrt/2, fn _x -> "not a float" end)
-
-      assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
-    end
-
-    test "does not raise when mocked protocol has no typespecs" do
-      protomock =
-        ProtoMock.new()
-        |> ProtoMock.stub(&NoTypespecs.do_something/2, fn x -> x end)
-
-      assert NoTypespecs.do_something(protomock, 3) == 3
-    end
   end
 
   describe "invoke" do
@@ -378,6 +292,69 @@ defmodule ProtoMockTest do
         |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> raise "crash" end)
 
       assert_raise RuntimeError, "crash", fn -> Calculator.add(protomock, 1, 2) end
+    end
+  end
+
+  describe "invoke with runtime type checks disabled" do
+    test "does not raise for invalid return types" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :invalid_return_type end)
+
+      assert Calculator.add(protomock, 1, 2) == :invalid_return_type
+    end
+
+    test "does not raise for invalid argument types" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> 2 end)
+
+      assert Calculator.add(protomock, 1, :invalid_argument) == 2
+    end
+  end
+
+  describe "invoke with runtime type checks enabled" do
+    test "raises when the implementation has the wrong arity" do
+      assert_raise ArgumentError, fn ->
+        ProtoMock.new(check_runtime_types: true)
+        |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
+      end
+    end
+
+    test "raises when the implementation returns the wrong type" do
+      assert_raise RuntimeError, fn ->
+        protomock =
+          ProtoMock.new(check_runtime_types: true)
+          |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :bad_return end)
+
+        Calculator.add(protomock, 1, 2)
+      end
+    end
+
+    test "raises when an argument has an invalid type" do
+      assert_raise RuntimeError, fn ->
+        protomock =
+          ProtoMock.new(check_runtime_types: true)
+          |> ProtoMock.stub(&Calculator.add/3, fn x, _y -> x end)
+
+        Calculator.add(protomock, 1, :invalid_argument)
+      end
+    end
+
+    test "does not raise when mocked function does not have a typespec" do
+      protomock =
+        ProtoMock.new(check_runtime_types: true)
+        |> ProtoMock.stub(&Calculator.sqrt/2, fn _x -> "not a float" end)
+
+      assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
+    end
+
+    test "does not raise when the mocked protocol has no typespecs" do
+      protomock =
+        ProtoMock.new(check_runtime_types: true)
+        |> ProtoMock.stub(&NoTypespecs.do_something/2, fn x -> x end)
+
+      assert NoTypespecs.do_something(protomock, 3) == 3
     end
   end
 
