@@ -1,4 +1,4 @@
-# The TypeEngine code is taken from Hammox v0.7.0: https://github.com/msz/hammox/tree/v0.7.0
+# The TypeEngine code is taken from Hammox: https://github.com/msz/hammox/tree/v0.7.0
 #
 # The original Hammox code has been modified for inclusion in ProtoMock.
 # Specifically, the name of the module has been changed from Hammox.TypeEngine

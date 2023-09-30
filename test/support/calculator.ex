@@ -5,11 +5,7 @@ defprotocol Calculator do
   @spec mult(t(), integer(), integer()) :: integer()
   def mult(calculator, x, y)
 
-  @spec sqrt(t(), float()) :: float()
   def sqrt(calulator, x)
-
-  @spec rand(t()) :: float()
-  def rand(calculator)
 end
 
 ProtoMock.create_impl(Calculator)

@@ -21,6 +21,6 @@ defmodule MyApp.HumanizedWeatherTest do
       |> ProtoMock.stub(&WeatherAPI.humidity/2, fn _lat_long -> {:ok, 60} end)
 
     assert HumanizedWeather.display_humidity({50.06, 19.94}, protomock) ==
-            "Current humidity is 60%"
+             "Current humidity is 60%"
   end
 end

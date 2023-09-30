@@ -138,7 +138,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "raises when bad return value is seen" do
+    test "raises when the implementation returns the wrong type" do
       assert_raise RuntimeError, fn ->
         protomock =
           ProtoMock.new()
@@ -148,7 +148,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "raises when bad arguments are seen" do
+    test "raises when an argument has an invalid type" do
       assert_raise RuntimeError, fn ->
         protomock =
           ProtoMock.new()
@@ -156,6 +156,22 @@ defmodule ProtoMockTest do
 
         Calculator.add(protomock, 1, :bad_argument)
       end
+    end
+
+    test "does not raise when mocked function does not have a typespec" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&Calculator.sqrt/2, 1, fn _x -> "not a float" end)
+
+      assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
+    end
+
+    test "does not raise when mocked protocol has no typespecs" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.expect(&NoTypespecs.do_something/2, 1, fn x -> x end)
+
+      assert NoTypespecs.do_something(protomock, 3) == 3
     end
   end
 
@@ -235,12 +251,6 @@ defmodule ProtoMockTest do
   end
 
   describe "stub" do
-    defprotocol StubOrderTest do
-      def test(subject)
-    end
-
-    ProtoMock.create_impl(StubOrderTest)
-
     test "allows repeated invocations" do
       protomock = stub_add()
 
@@ -286,12 +296,6 @@ defmodule ProtoMockTest do
     end
 
     test "allows recursive calls" do
-      defprotocol RecursiveTest do
-        def countdown(subject, number)
-      end
-
-      ProtoMock.create_impl(RecursiveTest)
-
       protomock = ProtoMock.new()
 
       protomock
@@ -330,7 +334,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "raises when bad return value is seen" do
+    test "raises when the implementation returns the wrong type" do
       assert_raise RuntimeError, fn ->
         protomock =
           ProtoMock.new()
@@ -340,7 +344,7 @@ defmodule ProtoMockTest do
       end
     end
 
-    test "raises when bad arguments are seen" do
+    test "raises when an argument has an invalid type" do
       assert_raise RuntimeError, fn ->
         protomock =
           ProtoMock.new()
@@ -348,6 +352,22 @@ defmodule ProtoMockTest do
 
         Calculator.add(protomock, 1, :bad_argument)
       end
+    end
+
+    test "does not raise when mocked function does not have a typespec" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&Calculator.sqrt/2, fn _x -> "not a float" end)
+
+      assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
+    end
+
+    test "does not raise when mocked protocol has no typespecs" do
+      protomock =
+        ProtoMock.new()
+        |> ProtoMock.stub(&NoTypespecs.do_something/2, fn x -> x end)
+
+      assert NoTypespecs.do_something(protomock, 3) == 3
     end
   end
 
@@ -374,3 +394,21 @@ defmodule ProtoMockTest do
     |> ProtoMock.stub(&Calculator.add/3, fn x, y -> x + y end)
   end
 end
+
+defprotocol NoTypespecs do
+  def do_something(subject, x)
+end
+
+ProtoMock.create_impl(NoTypespecs)
+
+defprotocol StubOrderTest do
+  def test(subject)
+end
+
+ProtoMock.create_impl(StubOrderTest)
+
+defprotocol RecursiveTest do
+  def countdown(subject, number)
+end
+
+ProtoMock.create_impl(RecursiveTest)
