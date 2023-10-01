@@ -12,7 +12,7 @@ defmodule ProtoMock do
 
   * API transparency
   * IDE navigability
-  * Compiler detection of api errors
+  * Compiler / dialyzer detection of api errors
 
   It is not expected that ProtoMock would be useful for more traditional protocol use
   cases, wherein protocols such as `Enumerable` provide a common interface for operating on
@@ -40,7 +40,7 @@ defmodule ProtoMock do
   We create a "real" implementation of `WeatherAPI` that calls out to the
   AcmeWeather api client:
 
-      create_impl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
+      defimpl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
         def temperature(api_config, {lat, long}) do
           AcmeWeather.Client.get_temperature(lat, long, api_config)
         end
@@ -200,10 +200,11 @@ defmodule ProtoMock do
          }
 
   @typep state :: %{
+           mocked_protocol: module(),
            stubs: %{function() => function()},
            expectations: [expectation()],
            invocations: [invocation()],
-           check_runtime_types: boolean()
+           check_runtime_types?: boolean()
          }
 
   defstruct [:pid]
@@ -255,12 +256,24 @@ defmodule ProtoMock do
   exits, any child `ProtoMock` GenServers also exit.
   """
   @spec new() :: t()
-  def new(opts \\ []) do
+
+  def new() do
+    new(nil, [])
+  end
+
+  def new(opts) when is_list(opts) do
+    new(nil, opts)
+  end
+
+  def new(protocol, opts \\ []) when is_atom(protocol) do
+    if protocol != nil, do: create_impl(protocol)
+
     state = %{
+      mocked_protocol: protocol,
       stubs: %{},
       expectations: [],
       invocations: [],
-      check_runtime_types: Keyword.get(opts, :check_runtime_types, false)
+      check_runtime_types?: Keyword.get(opts, :check_runtime_types?, false)
     }
 
     {:ok, pid} = GenServer.start_link(__MODULE__, state)
@@ -301,8 +314,12 @@ defmodule ProtoMock do
     assert_protomock_implements!(mocked_function)
     validate_arity!(mocked_function, impl)
 
-    :ok = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
-    protomock
+    reply = GenServer.call(protomock.pid, {:stub, mocked_function, impl})
+
+    case reply do
+      :ok -> protomock
+      %ArgumentError{message: msg} -> raise ArgumentError.exception(msg)
+    end
   end
 
   @doc """
@@ -374,8 +391,12 @@ defmodule ProtoMock do
     assert_protomock_implements!(mocked_function)
     validate_arity!(mocked_function, impl)
 
-    :ok = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
-    protomock
+    reply = GenServer.call(protomock.pid, {:expect, mocked_function, invocation_count, impl})
+
+    case reply do
+      :ok -> protomock
+      %ArgumentError{message: msg} -> raise ArgumentError.exception(msg)
+    end
   end
 
   @doc false
@@ -418,28 +439,30 @@ defmodule ProtoMock do
 
   @impl true
   def handle_call({:stub, mocked_function, impl}, _from, state) do
-    updated_stubs = state.stubs |> Map.put(mocked_function, impl)
-    updated_state = %{state | stubs: updated_stubs}
+    case protocol_exports_function?(state.mocked_protocol, mocked_function) do
+      true ->
+        updated_stubs = state.stubs |> Map.put(mocked_function, impl)
+        updated_state = %{state | stubs: updated_stubs}
 
-    {:reply, :ok, updated_state}
+        {:reply, :ok, updated_state}
+
+      false ->
+        msg = "Function #{inspect(mocked_function)} is not defined by protocol #{state.mocked_protocol}"
+        {:reply, ArgumentError.exception(msg), state}
+    end
   end
 
   @impl true
   def handle_call({:expect, mocked_function, invocation_count, impl}, _from, state) do
-    new_expectations =
-      for _ <- Range.new(1, invocation_count, 1) do
-        %{
-          mocked_function: mocked_function,
-          impl: impl,
-          pending?: true
-        }
-      end
+    case protocol_exports_function?(state.mocked_protocol, mocked_function) do
+      true ->
+        updated_state = add_expectations(mocked_function, invocation_count, impl, state)
+        {:reply, :ok, updated_state}
 
-    updated_expectations = state.expectations ++ new_expectations
-
-    updated_state = %{state | expectations: updated_expectations}
-
-    {:reply, :ok, updated_state}
+      false ->
+        msg = "Function #{inspect(mocked_function)} is not defined by protocol #{state.mocked_protocol}"
+        {:reply, ArgumentError.exception(msg), state}
+    end
   end
 
   @impl true
@@ -466,7 +489,7 @@ defmodule ProtoMock do
             try do
               return_value = Kernel.apply(impl, args)
 
-              if state.check_runtime_types do
+              if state.check_runtime_types? do
                 RuntimeTypeChecker.validate_invocation!(
                   mocked_function,
                   [self()] ++ args,
@@ -517,6 +540,22 @@ defmodule ProtoMock do
   end
 
   # ----- private
+
+  @spec add_expectations(function(), non_neg_integer(), function(), state()) :: state()
+  defp add_expectations(mocked_function, invocation_count, impl, state) do
+    new_expectations =
+      for _ <- Range.new(1, invocation_count, 1) do
+        %{
+          mocked_function: mocked_function,
+          impl: impl,
+          pending?: true
+        }
+      end
+
+    updated_expectations = state.expectations ++ new_expectations
+
+    %{state | expectations: updated_expectations}
+  end
 
   @spec next_impl(state(), function()) :: {function(), [expectation()]}
   defp next_impl(state, mocked_function) do
@@ -698,5 +737,17 @@ defmodule ProtoMock do
       `test_helper.exs` is a good place to call ProtoMock.start().
       """
     end
+  end
+
+  @spec protocol_exports_function?(module(), function()) :: boolean()
+  def protocol_exports_function?(nil, _function), do: true
+
+  def protocol_exports_function?(protocol, function) do
+    [module, name, arity] =
+      Function.info(function)
+      |> Keyword.take([:module, :name, :arity])
+      |> Keyword.values()
+
+    module == protocol && function_exported?(module, name, arity)
   end
 end
