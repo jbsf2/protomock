@@ -12,17 +12,38 @@ defmodule ProtoMock do
 
   * API transparency
   * IDE navigability
-  * Compiler / dialyzer detection of api errors
+  * Compiler / dialyzer error detection
 
   It is not expected that ProtoMock would be useful for more traditional protocol use
   cases, wherein protocols such as `Enumerable` provide a common interface for operating on
   disparate data structures. In such situations, there is no value in testing with mocks,
   therefore ProtoMock has no role.
 
+  ## Getting started
+
+  Add `protomock` to your list of dependencies in `mix.exs`:
+
+      def deps do
+        [
+          # ...
+          {:protomock, "~> 0.2.0", only: :test}
+        ]
+      end
+
+  Because ProtoMock generates implementations of the protocols that it mocks, we need to
+  disable [protocol consolidation](https://hexdocs.pm/elixir/1.15.6/Protocol.html#module-consolidation) for the `:test` environment in `mix.exs`:
+
+      def project do
+        [
+          # ...
+          consolidate_protocols: Mix.env() != :test
+        ]
+      end
+
   ## Example
 
   Following the traditional [Mox example](https://hexdocs.pm/mox/Mox.html#module-example),
-  imagine that we have an app that has to display the weather. To retrieve weather data,
+  imagine that we have an app that displays the weather. To retrieve weather data,
   we use an external weather API called AcmeWeather, and we model the API with our own
   protocol:
 
@@ -38,7 +59,7 @@ defmodule ProtoMock do
       end
 
   We create a "real" implementation of `WeatherAPI` that calls out to the
-  AcmeWeather api client:
+  AcmeWeather API client:
 
       defimpl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
         def temperature(api_config, {lat, long}) do
@@ -52,44 +73,24 @@ defmodule ProtoMock do
 
   For testing, however, we want to mock the service.
 
-  As a first step, we define an implementation of `WeatherAPI` that proxies
-  its function calls to an instance of `ProtoMock`. For creating such
-  implementations, the `ProtoMock` module provides the function `create_impl/1`. We can use
-  that function in our `test_helper.exs` or similar test suite config file:
-
-      ProtoMock.create_impl(MyApp.WeatherAPI)
-
-  With this implementation now loaded into the BEAM, we are prepared to use instances
-  of `ProtoMock` to dispatch `WeatherAPI` functions.
-
-  For this example, we'll focus on the simplest use case scenario for our protocol: a
-  function that takes a protocol implementation as an input parameter. Other scenarios,
-  such as using protocols within GenServers or using protocols when implementations
-  aren't passed as parameters, are discussed elsewhere.
-
   Continuing with the [Mox example](https://hexdocs.pm/mox/Mox.html#module-example),
   imagine that our application code looks like:
 
       defmodule MyApp.HumanizedWeather do
         alias MyApp.WeatherAPI
 
-        def display_temp({lat, long}, weather_api \\ default_weather_api()) do
+        def display_temp({lat, long}, weather_api) do
           {:ok, temp} = WeatherAPI.temperature(weather_api, {lat, long})
           "Current temperature is #{temp} degrees"
         end
 
-        def display_humidity({lat, long}, weather_api \\ default_weather_api()) do
+        def display_humidity({lat, long}, weather_api) do
           {:ok, humidity} = WeatherAPI.humidity(weather_api, {lat, long})
           "Current humidity is #{humidity}%"
         end
-
-        defp default_weather_api() do
-          Application.get_env(MyApp, :weather_api)
-        end
       end
 
-  In our test, we're ready to create instances of ProtoMock and use functions `expect/4`,
-  `stub/3` and `verify!/1`.
+  We can test `HumanizedWeather` by mocking `WeatherAPI` with ProtoMock:
 
       defmodule MyApp.HumanizedWeatherTest do
         use ExUnit.Case, async: true
@@ -99,8 +100,8 @@ defmodule ProtoMock do
 
         test "gets and formats temperature" do
           protomock =
-            ProtoMock.new()
-            |> ProtoMock.expect(&WeatherAPI.temperature/2, fn _lat_long -> {:ok, 30} end)
+            ProtoMock.new(WeatherAPI)
+            |> ProtoMock.expect(&WeatherAPI.temperature/2, 1, fn _lat_long -> {:ok, 30} end)
 
           assert HumanizedWeather.display_temp({50.06, 19.94}, protomock) ==
                   "Current temperature is 30 degrees"
@@ -110,7 +111,7 @@ defmodule ProtoMock do
 
         test "gets and formats humidity" do
           protomock =
-            ProtoMock.new()
+            ProtoMock.new(WeatherAPI)
             |> ProtoMock.stub(&WeatherAPI.humidity/2, fn _lat_long -> {:ok, 60} end)
 
           assert HumanizedWeather.display_humidity({50.06, 19.94}, protomock) ==
@@ -118,15 +119,21 @@ defmodule ProtoMock do
         end
       end
 
+  In the first test, we use `expect/4` to declare that `WeatherAPI.temperature/2` should be called
+  exactly once. The expectation is verified via `verify!/1`.
+
+  In the second test, we use `stub/3`, which does not set expectations on the number of times
+  the mocked function should be called, therefore we do not need to verify.
+
   ## Under the hood: a GenServer
 
-  The `ProtoMock` module is a GenServer. Each time we create a `ProtoMock` with `new/0`,
+  The `ProtoMock` module is a GenServer. Each time we create a `ProtoMock` with `new/1`,
   we start a new `ProtoMock` GenServer that is linked to the calling process - typically
   an ExUnit test process. When the test pid dies, the `ProtoMock` GenServer dies with it.
 
   `expect/4` and `stub/3` modify the `ProtoMock` GenServer state to tell the ProtoMock
-  how it will be used and how it should respond. As a `ProtoMock` instance is used to
-  dispatch functions of a mocked protocol, the instance records each function invocation.
+  how it will be used and how it should respond. As the `ProtoMock` instance is used to
+  dispatch functions of a mocked protocol, it records each function invocation.
   `verify!/1` compares the function invocations to the expectations defined via
   `expect/4`, and raises in case of an expectations mismatch.
 
@@ -144,10 +151,16 @@ defmodule ProtoMock do
     ExUnit test process (provided that the child process does not interact with other tests).
   * Rather than specificying expectations and stubs with a module name and a function name,
     e.g. `(MyAPIModule, :my_api_function ...)`, ProtoMock uses function captures, e.g.
-    `&MyApiProtocol.my_api_function/2`. As a benefit, api mismatches between actual code and
-    expectations/stubs will be caught at compile time.
-  * `stub_with` and `verify_on_exit` are not implemented, but may be implemented in future
-    versions if there's interest.
+    `&MyApiProtocol.my_api_function/2`. As a benefit, API mismatches between actual code and
+    expectations/stubs will be flagged by the compiler.
+  * `stub_with` and `verify_on_exit` are not meaningful when using ProtoMock, and they
+    are not implemented.
+
+  <!-- ## Runtime type checking
+
+  ProtoMock supports runtime type checking of mocked functions, via code adopted from [Hammox](https://hexdocs.pm/hammox/Hammox.html).
+  Type checking is disabled by default. It can be enabled via `enable_runtime_type_checking/0`.
+  See `enable_runtime_type_checking/0` for details on how type checking works. -->
 
   ## Goals and philosophy
 
@@ -164,9 +177,15 @@ defmodule ProtoMock do
   """
   use GenServer
 
+  alias ProtoMock.ConfigAgent
+  alias ProtoMock.ImplCreator
   alias ProtoMock.RuntimeTypeChecker
 
   defmodule VerificationError do
+    @moduledoc """
+    Error raised by `ProtoMock.verify!/1` when expectations set via `ProtoMock.expect/4`
+    have not been satisfied.
+    """
     defexception [:message]
 
     @spec exception([String.t()]) :: Exception.t()
@@ -177,6 +196,9 @@ defmodule ProtoMock do
   end
 
   defmodule UnexpectedCallError do
+    @moduledoc """
+    Error raised when a protocol function is invoked more times than expected.
+    """
     defexception [:message]
 
     @spec exception({function(), non_neg_integer(), non_neg_integer()}) :: Exception.t()
@@ -204,7 +226,7 @@ defmodule ProtoMock do
            stubs: %{function() => function()},
            expectations: [expectation()],
            invocations: [invocation()],
-           check_runtime_types?: boolean()
+           check_runtime_types: boolean()
          }
 
   defstruct [:pid]
@@ -218,54 +240,48 @@ defmodule ProtoMock do
   @doc false
   def child_spec(_), do: nil
 
+
   @doc false
-  def start() do
-    ProtoMock.ImplCreator.start_link()
-  end
-
-  @doc """
-  Creates an implementation of `protocol` for the `ProtoMock` module, thereby preparing
-  `ProtoMock` to be used in mocking the protocol.
-
-  The implementation that is generated dispatches functions on `protocol` by proxying
-  them to an instance of `ProtoMock`.
-
-  The expected use of `create_impl/1` is to call it in within `test_helper.exs`, for each
-  protocol to be mocked using ProtoMock. For example:
-
-          ProtoMock.create_impl(MyProtocol)
-          ProtoMock.create_impl(MyOtherProtocol)
-
-  """
   @spec create_impl(module()) :: :ok
   def create_impl(protocol) do
-    ensure_protomock_started!()
+    ensure_protomock_started()
     ProtoMock.ImplCreator.ensure_impl_created(protocol)
   end
 
-  @doc """
-  Creates a new instance of `ProtoMock`
-
-  After creating a new `ProtoMock`, tests can add expectations and stubs to the instance
-  using `expect/4` and `stub/3`. With expectations and stubs in place, the `ProtoMock`
-  instance can be provided to the code under test, and used by the code under test
-  where it expects an implementation of any mocked protocols.
-
-  The `ProtoMock` module is a GenServer. `new/0` starts a new instance of the GenServer
-  that is linked to the calling process, typically an ExUnit test pid. When the test pid
-  exits, any child `ProtoMock` GenServers also exit.
-  """
+  @doc false
   @spec new() :: t()
-
   def new() do
     new(nil, [])
   end
 
-  def new(opts) when is_list(opts) do
-    new(nil, opts)
+  @doc """
+  Creates a new instance of `ProtoMock` that mocks the given `protocol`.
+
+  After creating a new `ProtoMock`, tests can add expectations and stubs to the instance
+  using `expect/4` and `stub/3`. With expectations and stubs in place, the `ProtoMock`
+  instance can be provided to the code under test, and used by the code under test
+  where it expects an implementation of `protocol`.
+
+  If ProtoMock does not yet implement `protocol`, `new/1` will generate an implementation.
+
+  Subsequent calls to `expect/4` and `stub/3` will verify that their mocked functions are
+  member functions of `protocol`.
+
+  The `ProtoMock` module is a GenServer. `new/1` starts a new instance of the GenServer
+  that is linked to the calling process, typically an ExUnit test pid. When the test pid
+  exits, any child `ProtoMock` GenServers also exit.
+  """
+  @spec new(module()) :: t()
+  def new(protocol) do
+    new(protocol, [])
   end
 
-  def new(protocol, opts \\ []) when is_atom(protocol) do
+  @doc false
+  # use of opts is "private" and intended only for ProtoMockTest
+  @spec new(module(), keyword()) :: t()
+  def new(protocol, opts) do
+    ensure_protomock_started()
+
     if protocol != nil, do: create_impl(protocol)
 
     state = %{
@@ -273,11 +289,44 @@ defmodule ProtoMock do
       stubs: %{},
       expectations: [],
       invocations: [],
-      check_runtime_types?: Keyword.get(opts, :check_runtime_types?, false)
+      check_runtime_types: check_runtime_types?(opts)
     }
 
     {:ok, pid} = GenServer.start_link(__MODULE__, state)
     %__MODULE__{pid: pid}
+  end
+
+  # @doc """
+  # Enables runtime type checking on a system-wide basis.
+
+  # If type checking is desired, `enable_runtime_type_checking/0` is meant to
+  # be invoked within `test_helper.exs` or equivalent.
+
+  # Runtime type checking ensures that when a function is invoked on a mocked
+  # protocol, the arguments passed to the function, and the value returned from
+  # the mock implementation, both satisfy the typespec of the mocked function.
+  # (Dialyzer will validate argument types within .ex files, but not .exs files)
+
+  # Validating the type of return values can ensure that your production code will
+  # properly handle "real-life" return types in production. It identifies API contract
+  # errors in your mock implementations and prevents them from leaking into
+  # your production code.
+
+  # Typespecs are optional on protocol functions. Runtime type checking cannot
+  # identify typing errors for mocked functions that do not have typespecs.
+
+  # Runtime type checking relies on an undocumented module in core Elixir:
+  # `Code.Typespec`. If `Code.Typespec` is ever removed or changed, runtime type
+  # checking my be impacted.
+
+  # ProtoMock's implementation of type checking relies heavily on code from
+  # [Hammox](https://hexdocs.pm/hammox/Hammox.html).
+  # """
+  @doc false
+  @spec enable_runtime_type_checking() :: :ok
+  def enable_runtime_type_checking() do
+    ensure_protomock_started()
+    ConfigAgent.set(:check_runtime_types, true)
   end
 
   @doc """
@@ -298,13 +347,16 @@ defmodule ProtoMock do
   If expectations and stubs are defined for the same `mocked_function`, the stub is
   invoked only after all expectations are fulfilled.
 
+  `stub/3` will raise an ArgumentError if `mocked_function` is not a member function
+  of the protocol mocked by `protomock`, as indicated via `new/1`.
+
   ## Example
 
   To allow `WeatherAPI.temperature/2` to be dispatched to a `ProtoMock` instance any
   number of times:
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(WeatherAPI)
         |> ProtoMock.stub(&WeatherAPI.temperature/2, fn _lat_long -> {:ok, 30} end)
 
   `stub/3` will overwrite any previous calls to `stub/3`.
@@ -340,24 +392,27 @@ defmodule ProtoMock do
   than `invocation_count` times. If `stub/3` is invoked after `expect/4` for the same
   `mocked_function`, the stub will be used after all expectations are fulfilled.
 
+  `expect/4` will raise an ArgumentError if `mocked_function` is not a member function
+  of the protocol mocked by `protomock`, as indicated via `new/1`.
+
   ## Examples
 
   To expect `WeatherAPI.temperature/2` to be called once:
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(WeatherAPI)
         |> ProtoMock.expect(&WeatherAPI.temperature/2, fn _lat_long -> {:ok, 30} end)
 
   To expect `WeatherAPI.temperature/2` to be called five times:
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(WeatherAPI)
         |> ProtoMock.expect(&WeatherAPI.temperature/2, 5, fn _lat_long -> {:ok, 30} end)
 
   To expect `WeatherAPI.temperature/2` to not be called:
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(WeatherAPI)
         |> ProtoMock.expect(&WeatherAPI.temperature/2, 0, fn _lat_long -> {:ok, 30} end)
 
   `expect/4` can be invoked multiple times for the same `mocked_function`, permitting
@@ -365,7 +420,7 @@ defmodule ProtoMock do
   will try an API call three times before giving up:
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(WeatherAPI)
         |> ProtoMock.expect(&WeatherAPI.temperature/2, 2, fn _ -> {:error, :unreachable} end)
         |> ProtoMock.expect(&WeatherAPI.temperature/2, 1, fn _ -> {:ok, 30} end)
 
@@ -489,7 +544,7 @@ defmodule ProtoMock do
             try do
               return_value = Kernel.apply(impl, args)
 
-              if state.check_runtime_types? do
+              if state.check_runtime_types do
                 RuntimeTypeChecker.validate_invocation!(
                   mocked_function,
                   [self()] ++ args,
@@ -679,7 +734,7 @@ defmodule ProtoMock do
           #{inspect(function)} is not a function. To pass a function to ProtoMock.stub/3 or ProtoMock.expect/4,
           use a function capture, for example &Enumerable.count/1
 
-          If you find this puzzling, double check for compiler warnings related to #{inspect(function)}.
+          If you find this error puzzling, double check for compiler warnings related to #{inspect(function)}.
           """
 
           raise ArgumentError.exception(message)
@@ -692,7 +747,7 @@ defmodule ProtoMock do
         message = """
         #{module} is not recognized as a protocol.
 
-        If you find this puzzling, double-check for compiler warnings related to #{inspect(function)}.
+        If you find this error puzzling, double-check for compiler warnings related to #{inspect(function)}.
         Perhaps you're missing an alias or have a misspelling.
         """
 
@@ -704,9 +759,9 @@ defmodule ProtoMock do
     rescue
       _ in ArgumentError ->
         message = """
-        ProtoMock does not implement the #{module} protocol. Use ProtoMock.create_impl/1 to create an implementation.
+        ProtoMock does not implement the #{module} protocol. #{module} must be the same protocol passed to `ProtoMock.new/1`.
 
-        If you find this puzzling, double-check for compiler warnings related to #{inspect(function)}.
+        If you find this error puzzling, double-check for compiler warnings related to #{inspect(function)}.
         """
 
         raise ArgumentError.exception(message)
@@ -729,25 +784,27 @@ defmodule ProtoMock do
     end
   end
 
-  defp ensure_protomock_started!() do
-    if Process.whereis(ProtoMock.ImplCreator) == nil do
-      raise RuntimeError, """
-      ProtoMock is not started. Call ProtoMock.start() before using ProtoMock.create_impl/1.
-
-      `test_helper.exs` is a good place to call ProtoMock.start().
-      """
-    end
+  @spec ensure_protomock_started() :: :ok
+  defp ensure_protomock_started() do
+    ImplCreator.ensure_started()
+    ConfigAgent.ensure_started()
+    :ok
   end
 
   @spec protocol_exports_function?(module(), function()) :: boolean()
-  def protocol_exports_function?(nil, _function), do: true
+  defp protocol_exports_function?(nil, _function), do: true
 
-  def protocol_exports_function?(protocol, function) do
+  defp protocol_exports_function?(protocol, function) do
     [module, name, arity] =
       Function.info(function)
       |> Keyword.take([:module, :name, :arity])
       |> Keyword.values()
 
     module == protocol && function_exported?(module, name, arity)
+  end
+
+  @spec check_runtime_types?(keyword()) :: boolean()
+  defp check_runtime_types?(opts) do
+    Keyword.get(opts, :check_runtime_types, ConfigAgent.get(:check_runtime_types))
   end
 end

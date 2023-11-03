@@ -12,7 +12,7 @@ defmodule ProtoMockTest do
       ProtoMock.create_impl(DefimplTest1)
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(DefimplTest1)
         |> ProtoMock.expect(&DefimplTest1.hello/1, fn -> "hello, world!" end)
 
       assert DefimplTest1.hello(protomock) == "hello, world!"
@@ -28,7 +28,7 @@ defmodule ProtoMockTest do
       assert :ok == ProtoMock.create_impl(CreateImplTest2)
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(CreateImplTest2)
         |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello, world!" end)
 
       assert CreateImplTest2.hello(protomock) == "hello, world!"
@@ -37,7 +37,7 @@ defmodule ProtoMockTest do
       assert :ok == ProtoMock.create_impl(CreateImplTest2)
 
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(CreateImplTest2)
         |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello again!" end)
 
       assert CreateImplTest2.hello(protomock) == "hello again!"
@@ -60,7 +60,7 @@ defmodule ProtoMockTest do
 
     test "is order-insensitive" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(Calculator)
         |> ProtoMock.expect(&Calculator.add/3, 3, fn x, y -> x + y end)
         |> ProtoMock.expect(&Calculator.mult/3, 2, fn x, y -> x * y end)
 
@@ -73,7 +73,7 @@ defmodule ProtoMockTest do
 
     test "allows asserting that the function has not been called" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(Calculator)
         |> ProtoMock.expect(&Calculator.add/3, 0, fn x, y -> x + y end)
 
       msg = ~r"expected Calculator.add/3 to be called 0 times but it was called once"
@@ -122,7 +122,7 @@ defmodule ProtoMockTest do
     end
 
     test "verifies that the mocked function is a member function of a protocol implemented by ProtoMock" do
-      protomock = ProtoMock.new()
+      protomock = ProtoMock.new(Calculator)
 
       assert_raise ArgumentError, ~r/not a function/, fn ->
         ProtoMock.expect(protomock, :not_a_function, fn -> nil end)
@@ -144,7 +144,7 @@ defmodule ProtoMockTest do
 
   describe "verify" do
     test "with no expectations, it returns :ok" do
-      protomock = ProtoMock.new()
+      protomock = ProtoMock.new(Calculator)
 
       assert ProtoMock.verify!(protomock) == :ok
     end
@@ -233,7 +233,7 @@ defmodule ProtoMockTest do
 
     test "gives expectations precedence" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(Calculator)
         |> ProtoMock.stub(&Calculator.add/3, fn x, y -> x + y end)
         |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> -1 end)
 
@@ -242,7 +242,7 @@ defmodule ProtoMockTest do
 
     test "a stub is called after all expectations are fulfilled" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(StubOrderTest)
         |> ProtoMock.stub(&StubOrderTest.test/1, fn -> :stubbed end)
         |> ProtoMock.expect(&StubOrderTest.test/1, 3, fn -> :expected end)
 
@@ -255,7 +255,7 @@ defmodule ProtoMockTest do
 
     test "overwrites earlier stubs" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(StubOrderTest)
         |> ProtoMock.stub(&StubOrderTest.test/1, fn -> :first end)
         |> ProtoMock.stub(&StubOrderTest.test/1, fn -> :second end)
 
@@ -263,7 +263,7 @@ defmodule ProtoMockTest do
     end
 
     test "allows recursive calls" do
-      protomock = ProtoMock.new()
+      protomock = ProtoMock.new(RecursiveTest)
 
       protomock
       |> ProtoMock.stub(&RecursiveTest.countdown/2, fn
@@ -275,7 +275,7 @@ defmodule ProtoMockTest do
     end
 
     test "verifies that the mocked function is a member function of a protocol implemented by ProtoMock" do
-      protomock = ProtoMock.new()
+      protomock = ProtoMock.new(Calculator)
 
       assert_raise ArgumentError, ~r/not a function/, fn ->
         ProtoMock.stub(protomock, :not_a_function, fn -> nil end)
@@ -298,7 +298,7 @@ defmodule ProtoMockTest do
   describe "invoke" do
     test "raises errors that the impl function raises in the client" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(Calculator)
         |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> raise "crash" end)
 
       assert_raise RuntimeError, "crash", fn -> Calculator.add(protomock, 1, 2) end
@@ -308,7 +308,7 @@ defmodule ProtoMockTest do
   describe "invoke with runtime type checks disabled" do
     test "does not raise for invalid return types" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(Calculator)
         |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :invalid_return_type end)
 
       assert Calculator.add(protomock, 1, 2) == :invalid_return_type
@@ -316,7 +316,7 @@ defmodule ProtoMockTest do
 
     test "does not raise for invalid argument types" do
       protomock =
-        ProtoMock.new()
+        ProtoMock.new(Calculator)
         |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> 2 end)
 
       assert Calculator.add(protomock, 1, :invalid_argument) == 2
@@ -326,7 +326,7 @@ defmodule ProtoMockTest do
   describe "invoke with runtime type checks enabled" do
     test "raises when the implementation has the wrong arity" do
       assert_raise ArgumentError, fn ->
-        ProtoMock.new(check_runtime_types?: true)
+        ProtoMock.new(Calculator, check_runtime_types: true)
         |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
       end
     end
@@ -334,7 +334,7 @@ defmodule ProtoMockTest do
     test "raises when the implementation returns the wrong type" do
       assert_raise RuntimeError, fn ->
         protomock =
-          ProtoMock.new(check_runtime_types?: true)
+          ProtoMock.new(Calculator, check_runtime_types: true)
           |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :bad_return end)
 
         Calculator.add(protomock, 1, 2)
@@ -344,7 +344,7 @@ defmodule ProtoMockTest do
     test "raises when an argument has an invalid type" do
       assert_raise RuntimeError, fn ->
         protomock =
-          ProtoMock.new(check_runtime_types?: true)
+          ProtoMock.new(Calculator, check_runtime_types: true)
           |> ProtoMock.stub(&Calculator.add/3, fn x, _y -> x end)
 
         Calculator.add(protomock, 1, :invalid_argument)
@@ -353,7 +353,7 @@ defmodule ProtoMockTest do
 
     test "does not raise when mocked function does not have a typespec" do
       protomock =
-        ProtoMock.new(check_runtime_types?: true)
+        ProtoMock.new(Calculator, check_runtime_types: true)
         |> ProtoMock.stub(&Calculator.sqrt/2, fn _x -> "not a float" end)
 
       assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
@@ -361,7 +361,7 @@ defmodule ProtoMockTest do
 
     test "does not raise when the mocked protocol has no typespecs" do
       protomock =
-        ProtoMock.new(check_runtime_types?: true)
+        ProtoMock.new(NoTypespecs, check_runtime_types: true)
         |> ProtoMock.stub(&NoTypespecs.do_something/2, fn x -> x end)
 
       assert NoTypespecs.do_something(protomock, 3) == 3
@@ -404,7 +404,7 @@ defmodule ProtoMockTest do
   end
 
   defp mock_add() do
-    mock_add(ProtoMock.new())
+    mock_add(ProtoMock.new(Calculator))
   end
 
   defp mock_add(protomock) do
@@ -412,7 +412,7 @@ defmodule ProtoMockTest do
   end
 
   defp stub_add() do
-    ProtoMock.new()
+    ProtoMock.new(Calculator)
     |> ProtoMock.stub(&Calculator.add/3, fn x, y -> x + y end)
   end
 end

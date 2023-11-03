@@ -1,21 +1,30 @@
 defmodule ProtoMock.ImplCreator do
-  # The ImplCreator Agent exists to ensure that impl creation is
+  # The ImplCreator agent exists to ensure that impl creation is
   # single-threaded, thereby avoiding race conditions that could
   # lead to impl modules being redefined, with compiler warnings
   # generated as a result.
   #
   # Doing it this way means developers don't have to remember to
-  # call create_impl specifically in test_helper.exs or equivalent.
-  # They can call it from anywhere, any number of times, and it
-  # will just work - as long as create_impl is called before ProtoMock
-  # is used to mock a given protocol.
+  # create implementations in test_helper.exs or equivalent. Instead,
+  # implementations are created via ProtoMock.new/1, with "async: true"
+  # safely supported.
 
   @moduledoc false
 
   @typep quoted_expression :: {atom() | tuple(), keyword(), list() | atom()}
 
-  def start_link() do
-    Agent.start_link(fn -> MapSet.new() end, name: __MODULE__)
+  @spec ensure_started() :: :ok
+  def ensure_started() do
+    if Process.whereis(__MODULE__) == nil do
+      # If tests are run in parallel, it's possible that multiple test
+      # processes might try to start the agent at the same time.
+      # Only one will succeed. We choose to live with the (harmless) race condition
+      # in favor of developer ergonomics, in that developers don't have
+      # to explicitly start any global ProtoMock processes.
+      Agent.start_link(fn -> MapSet.new() end, name: __MODULE__)
+    end
+
+    :ok
   end
 
   @spec ensure_impl_created(module()) :: :ok
@@ -47,6 +56,8 @@ defmodule ProtoMock.ImplCreator do
       end
 
     {_term, _binding} = Code.eval_quoted(quoted)
+
+    :ok
   end
 
   # For each function defined by the given protocol, `impl_functions` generates
