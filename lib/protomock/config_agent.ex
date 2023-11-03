@@ -1,4 +1,3 @@
-
 # Agent for storing / retrieving global configuration.
 # Right now there is only one piece of configuration: check_runtime_types.
 defmodule ProtoMock.ConfigAgent do

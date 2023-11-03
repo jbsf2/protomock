@@ -1,10 +1,13 @@
 defmodule ProtoMock.MixProject do
   use Mix.Project
 
+  @version "0.5.0"
+  @github_page "https://github.com/jbsf2/protomock"
+
   def project do
     [
       app: :protomock,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -14,7 +17,10 @@ defmodule ProtoMock.MixProject do
 
       # Docs
       name: "ProtoMock",
-      source_url: "https://github.com/jbsf2/protomock"
+      homepage_url: @github_page,
+      source_url: "https://github.com/jbsf2/protomock",
+      docs: docs(),
+      package: package()
     ]
   end
 
@@ -33,7 +39,31 @@ defmodule ProtoMock.MixProject do
   defp deps do
     [
       {:dialyxir, "~> 1.2", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.29.2", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.30.3", only: :dev, runtime: false}
+    ]
+  end
+
+  defp docs do
+    [
+      api_reference: false,
+      authors: ["JB Steadman"],
+      canonical: "http://hexdocs.pm/protomock",
+      extras: ["README.md"],
+      main: "ProtoMock",
+      source_ref: "v#{@version}"
+    ]
+  end
+
+  defp package do
+    [
+      files: ~w(mix.exs README.md lib),
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => @github_page,
+        "marcdel.com" => "https://www.marcdel.com",
+        "OpenTelemetry Erlang SDK" => "https://github.com/open-telemetry/opentelemetry-erlang"
+      },
+      maintainers: ["JB Steadman"]
     ]
   end
 end
