@@ -38,8 +38,6 @@ defimpl MyApp.WeatherAPI, for: ProtoMock do
   end
 end
 
-# ProtoMock.create_impl(MyApp.WeatherAPI)
-
 defmodule MyApp.HumanizedWeather do
   alias MyApp.WeatherAPI
 

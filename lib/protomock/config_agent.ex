@@ -11,10 +11,17 @@ defmodule ProtoMock.ConfigAgent do
       # Only one will succeed. We choose to live with the (harmless) race condition
       # in favor of developer ergonomics, in that developers don't have
       # to explicitly start any global ProtoMock processes.
-      Agent.start_link(fn -> %{check_runtime_types: false} end, name: __MODULE__)
-    end
+      case Agent.start(fn -> %{check_runtime_types: false} end, name: __MODULE__) do
+        {:ok, _pid} ->
+          :ok
 
-    :ok
+        {:error, {:already_started, _pid}} ->
+          :ok
+
+        {:error, reason} ->
+          raise "Failed to start ProtoMock.ConfigAgent: #{inspect(reason)}"
+      end
+    end
   end
 
   @spec set(atom(), any()) :: :ok

@@ -75,13 +75,6 @@ defmodule ProtoMock do
   def child_spec(_), do: nil
 
   @doc false
-  @spec create_impl(module()) :: :ok
-  def create_impl(protocol) do
-    ensure_protomock_started()
-    ProtoMock.ImplCreator.ensure_impl_created(protocol)
-  end
-
-  @doc false
   @spec new() :: t()
   def new() do
     new(nil, [])
@@ -391,7 +384,8 @@ defmodule ProtoMock do
 
               return_value
             rescue
-              e -> {:protomock_error, e}
+              e ->
+                {:protomock_error, e}
             end
 
           send(from_pid, {ref, response})
@@ -544,16 +538,37 @@ defmodule ProtoMock do
   @spec validate_arity!(function(), function()) :: :ok
   defp validate_arity!(mocked_function, impl) when is_function(impl) do
     original_arity = Function.info(mocked_function)[:arity]
+    expected_arity = original_arity - 1
     impl_arity = Function.info(impl)[:arity]
 
-    case impl_arity + 1 == original_arity do
-      true ->
+    cond do
+      impl_arity == expected_arity ->
         :ok
 
-      false ->
+      impl_arity == expected_arity + 1 ->
         message = """
-        #{inspect(impl)} has arity #{impl_arity}, but #{inspect(mocked_function)} has arity #{original_arity}.
-        The arity of #{inspect(impl)} must be one less than the arity of #{inspect(mocked_function)}.
+        \n
+        The provided implementation function has arity #{impl_arity}, which is equal to the arity of #{inspect(mocked_function)}.
+
+        The arity of the provided implementation function must be *one less than* the arity of the function being mocked.
+
+        This is because the first argument of #{inspect(mocked_function)} is the data structure that implements the protocol,
+        which in this case is a ProtoMock instance. The implementation function has no reason to access the ProtoMock instance,
+        so we have chosen to omit it from the implementation function's argument list.
+        """
+
+        raise ArgumentError.exception(message)
+
+      true ->
+        message = """
+        \n
+        The provided implementation function has arity #{impl_arity}. The expected arity is #{expected_arity}.
+
+        The arity of the provided implementation function must be *one less than* the arity of #{inspect(mocked_function)}.
+
+        This is because the first argument of #{inspect(mocked_function)} is the data structure that implements the protocol,
+        which in this case is a ProtoMock instance. The implementation function has no reason to access the ProtoMock instance,
+        so we have chosen to omit it from the implementation function's argument list.
         """
 
         raise ArgumentError.exception(message)
@@ -643,5 +658,11 @@ defmodule ProtoMock do
   @spec check_runtime_types?(keyword()) :: boolean()
   defp check_runtime_types?(opts) do
     Keyword.get(opts, :check_runtime_types, ConfigAgent.get(:check_runtime_types))
+  end
+
+  @spec create_impl(module()) :: :ok
+  defp create_impl(protocol) do
+    ensure_protomock_started()
+    ProtoMock.ImplCreator.ensure_impl_created(protocol)
   end
 end

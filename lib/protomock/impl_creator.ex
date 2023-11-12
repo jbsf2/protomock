@@ -6,8 +6,8 @@ defmodule ProtoMock.ImplCreator do
   #
   # Doing it this way means developers don't have to remember to
   # create implementations in test_helper.exs or equivalent. Instead,
-  # implementations are created via ProtoMock.new/1, with "async: true"
-  # safely supported.
+  # implementations are created on demand via ProtoMock.new/1,
+  # with "async: true" safely supported.
 
   @moduledoc false
 
@@ -21,10 +21,17 @@ defmodule ProtoMock.ImplCreator do
       # Only one will succeed. We choose to live with the (harmless) race condition
       # in favor of developer ergonomics, in that developers don't have
       # to explicitly start any global ProtoMock processes.
-      Agent.start_link(fn -> MapSet.new() end, name: __MODULE__)
-    end
+      case Agent.start(fn -> MapSet.new() end, name: __MODULE__) do
+        {:ok, _pid} ->
+          :ok
 
-    :ok
+        {:error, {:already_started, _pid}} ->
+          :ok
+
+        {:error, reason} ->
+          raise "Failed to start ProtoMock.ImplCreator: #{inspect(reason)}"
+      end
+    end
   end
 
   @spec ensure_impl_created(module()) :: :ok

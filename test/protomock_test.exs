@@ -3,19 +3,17 @@ defmodule ProtoMockTest do
 
   alias ProtoMock.VerificationError
 
-  describe "defimpl" do
+  describe "creating protocol implementations" do
     test "when there is no existing impl for Protomock, it creates one" do
-      defprotocol DefimplTest1 do
+      defprotocol CreateImplTest1 do
         def hello(impl)
       end
 
-      ProtoMock.create_impl(DefimplTest1)
-
       protomock =
-        ProtoMock.new(DefimplTest1)
-        |> ProtoMock.expect(&DefimplTest1.hello/1, fn -> "hello, world!" end)
+        ProtoMock.new(CreateImplTest1)
+        |> ProtoMock.expect(&CreateImplTest1.hello/1, fn -> "hello, world!" end)
 
-      assert DefimplTest1.hello(protomock) == "hello, world!"
+      assert CreateImplTest1.hello(protomock) == "hello, world!"
 
       assert ProtoMock.verify!(protomock) == :ok
     end
@@ -25,28 +23,24 @@ defmodule ProtoMockTest do
         def hello(impl)
       end
 
-      assert :ok == ProtoMock.create_impl(CreateImplTest2)
-
-      protomock =
+      protomock1 =
         ProtoMock.new(CreateImplTest2)
-        |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello, world!" end)
+        |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello from protomock1!" end)
 
-      assert CreateImplTest2.hello(protomock) == "hello, world!"
-      assert ProtoMock.verify!(protomock) == :ok
-
-      assert :ok == ProtoMock.create_impl(CreateImplTest2)
-
-      protomock =
+      protomock2 =
         ProtoMock.new(CreateImplTest2)
-        |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello again!" end)
+        |> ProtoMock.expect(&CreateImplTest2.hello/1, fn -> "hello from protomock2!" end)
 
-      assert CreateImplTest2.hello(protomock) == "hello again!"
-      assert ProtoMock.verify!(protomock) == :ok
+      assert CreateImplTest2.hello(protomock1) == "hello from protomock1!"
+      assert ProtoMock.verify!(protomock1) == :ok
+
+      assert CreateImplTest2.hello(protomock2) == "hello from protomock2!"
+      assert ProtoMock.verify!(protomock2) == :ok
     end
 
     test "when the argument is not a protocol, it raises an error" do
       assert_raise ArgumentError, "Map is not a protocol", fn ->
-        ProtoMock.create_impl(Map)
+        ProtoMock.new(Map)
       end
     end
   end
@@ -305,6 +299,32 @@ defmodule ProtoMockTest do
     end
   end
 
+  describe "checking arity of implementation functions" do
+    test "when the impl arity equals the arity of the mocked function" do
+      assert_raise ArgumentError, ~r/equal to the arity/, fn ->
+        ProtoMock.new(Calculator)
+        |> ProtoMock.stub(&Calculator.add/3, fn 1, 2, 3 -> :error end)
+      end
+
+      assert_raise ArgumentError, ~r/equal to the arity/, fn ->
+        ProtoMock.new(Calculator)
+        |> ProtoMock.expect(&Calculator.add/3, fn 1, 2, 3 -> :error end)
+      end
+    end
+
+    test "when the impl arity is completely unexpected" do
+      assert_raise ArgumentError, ~r/expected arity/, fn ->
+        ProtoMock.new(Calculator)
+        |> ProtoMock.stub(&Calculator.add/3, fn 1, 2, 3, 4 -> :error end)
+      end
+
+      assert_raise ArgumentError, ~r/expected arity/, fn ->
+        ProtoMock.new(Calculator)
+        |> ProtoMock.expect(&Calculator.add/3, fn 1, 2, 3, 4 -> :error end)
+      end
+    end
+  end
+
   describe "invoke with runtime type checks disabled" do
     test "does not raise for invalid return types" do
       protomock =
@@ -324,13 +344,6 @@ defmodule ProtoMockTest do
   end
 
   describe "invoke with runtime type checks enabled" do
-    test "raises when the implementation has the wrong arity" do
-      assert_raise ArgumentError, fn ->
-        ProtoMock.new(Calculator, check_runtime_types: true)
-        |> ProtoMock.stub(&Calculator.add/3, fn x, y, z -> x + y + z end)
-      end
-    end
-
     test "raises when the implementation returns the wrong type" do
       assert_raise RuntimeError, fn ->
         protomock =
@@ -421,22 +434,14 @@ defprotocol NoTypespecs do
   def do_something(impl, x)
 end
 
-ProtoMock.create_impl(NoTypespecs)
-
 defprotocol StubOrderTest do
   def test(impl)
 end
-
-ProtoMock.create_impl(StubOrderTest)
 
 defprotocol RecursiveTest do
   def countdown(impl, number)
 end
 
-ProtoMock.create_impl(RecursiveTest)
-
 defprotocol OtherProtocol do
   def do_something(impl)
 end
-
-ProtoMock.create_impl(OtherProtocol)
