@@ -131,7 +131,8 @@ defmodule ProtoMockTest do
       end
 
       assert_raise ArgumentError, ~r/not a function exported by/, fn ->
-        ProtoMock.expect(protomock, &Calculator.add/4, fn -> nil end)
+        function = Function.capture(Calculator, :add, 4)
+        ProtoMock.expect(protomock, function, fn -> nil end)
       end
     end
   end
@@ -284,7 +285,8 @@ defmodule ProtoMockTest do
       end
 
       assert_raise ArgumentError, ~r/not a function exported by/, fn ->
-        ProtoMock.stub(protomock, &Calculator.add/4, fn -> nil end)
+        function = Function.capture(Calculator, :add, 4)
+        ProtoMock.stub(protomock, function, fn -> nil end)
       end
     end
   end
