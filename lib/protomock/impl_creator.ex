@@ -31,12 +31,14 @@ defmodule ProtoMock.ImplCreator do
         {:error, reason} ->
           raise "Failed to start ProtoMock.ImplCreator: #{inspect(reason)}"
       end
+    else
+      :ok
     end
   end
 
   @spec ensure_impl_created(module()) :: :ok
   def ensure_impl_created(protocol) do
-    Code.ensure_loaded(protocol)
+    {:module, _} = Code.ensure_loaded(protocol)
     Protocol.assert_protocol!(protocol)
 
     Agent.update(__MODULE__, fn implemented_protocols ->
@@ -45,7 +47,7 @@ defmodule ProtoMock.ImplCreator do
           implemented_protocols
 
         false ->
-          create_impl(protocol)
+          :ok = create_impl(protocol)
           MapSet.put(implemented_protocols, protocol)
       end
     end)

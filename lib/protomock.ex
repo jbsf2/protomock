@@ -106,9 +106,9 @@ defmodule ProtoMock do
   # use of opts is "private" and intended only for ProtoMockTest
   @spec new(module(), keyword()) :: t()
   def new(protocol, opts) do
-    ensure_protomock_started()
+    :ok = ensure_protomock_started()
 
-    if protocol != nil, do: create_impl(protocol)
+    if protocol != nil, do: :ok = create_impl(protocol)
 
     state = %{
       mocked_protocol: protocol,
@@ -639,8 +639,8 @@ defmodule ProtoMock do
 
   @spec ensure_protomock_started() :: :ok
   defp ensure_protomock_started() do
-    ImplCreator.ensure_started()
-    ConfigAgent.ensure_started()
+    :ok = ImplCreator.ensure_started()
+    :ok = ConfigAgent.ensure_started()
     :ok
   end
 
@@ -663,7 +663,8 @@ defmodule ProtoMock do
 
   @spec create_impl(module()) :: :ok
   defp create_impl(protocol) do
-    ensure_protomock_started()
-    ProtoMock.ImplCreator.ensure_impl_created(protocol)
+    :ok = ensure_protomock_started()
+    :ok = ProtoMock.ImplCreator.ensure_impl_created(protocol)
+    :ok
   end
 end

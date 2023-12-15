@@ -21,6 +21,8 @@ defmodule ProtoMock.ConfigAgent do
         {:error, reason} ->
           raise "Failed to start ProtoMock.ConfigAgent: #{inspect(reason)}"
       end
+    else
+      :ok
     end
   end
 
