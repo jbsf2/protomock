@@ -122,36 +122,37 @@ defmodule ProtoMock do
     %__MODULE__{pid: pid}
   end
 
-  # @doc """
-  # Enables runtime type checking on a system-wide basis.
+  @doc """
+  Enables runtime type checking on a system-wide basis.
 
-  # If type checking is desired, `enable_runtime_type_checking/0` is meant to
-  # be invoked within `test_helper.exs` or equivalent.
+  If type checking is desired, `enable_type_checking/0` is meant to
+  be invoked within `test_helper.exs` or equivalent, like this:
 
-  # Runtime type checking ensures that when a function is invoked on a mocked
-  # protocol, the arguments passed to the function, and the value returned from
-  # the mock implementation, both satisfy the typespec of the mocked function.
-  # (Dialyzer will validate argument types within .ex files, but not .exs files)
+        ProtoMock.enable_type_checking()
 
-  # Validating the type of return values can ensure that your production code will
-  # properly handle "real-life" return types in production. It identifies API contract
-  # errors in your mock implementations and prevents them from leaking into
-  # your production code.
+  Runtime type checking ensures that when a function is invoked on a mocked
+  protocol, the arguments passed to the function, and the value returned from
+  the mock implementation, both satisfy the typespec of the mocked function.
+  (Dialyzer will validate argument types within .ex files, but not .exs files)
 
-  # Typespecs are optional on protocol functions. Runtime type checking cannot
-  # identify typing errors for mocked functions that do not have typespecs.
+  Validating the type of return values can ensure that the production code using
+  your protocol will properly handle "real-life" return types. It identifies API
+  contract errors in your mock implementations and prevents them from leaking into
+  the production code that uses your protocol.
 
-  # Runtime type checking relies on an undocumented module in core Elixir:
-  # `Code.Typespec`. If `Code.Typespec` is ever removed or changed, runtime type
-  # checking my be impacted.
+  Typespecs are optional on protocol functions. Runtime type checking cannot
+  identify typing errors for mocked functions that do not have typespecs.
 
-  # ProtoMock's implementation of type checking relies heavily on code from
-  # [Hammox](https://hexdocs.pm/hammox/Hammox.html).
-  # """
-  @doc false
-  @spec enable_runtime_type_checking() :: :ok
-  def enable_runtime_type_checking() do
-    ensure_protomock_started()
+  Runtime type checking relies on an undocumented module in core Elixir:
+  `Code.Typespec`. If `Code.Typespec` is ever removed or changed, runtime type
+  checking may be impacted.
+
+  ProtoMock's implementation of type checking relies heavily on code from
+  [Hammox](https://hexdocs.pm/hammox/Hammox.html).
+  """
+  @spec enable_type_checking() :: :ok
+  def enable_type_checking() do
+    :ok = ensure_protomock_started()
     ConfigAgent.set(:check_runtime_types, true)
   end
 

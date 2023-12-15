@@ -16,6 +16,7 @@ Modeling external APIs with protocols provides these benefits:
 * API transparency
 * IDE navigability
 * Compiler / dialyzer error detection
+* Flexible options for mocking (for example using fake objects for some tests, instead of a mocking library)
 
 It is not expected that ProtoMock would be useful for more traditional protocol use
 cases, wherein protocols such as `Enumerable` provide a common interface for operating on
@@ -42,6 +43,11 @@ disable [protocol consolidation](https://hexdocs.pm/elixir/1.15.6/Protocol.html#
         consolidate_protocols: Mix.env() != :test
       ]
     end
+
+To enable [Hammox](https://hexdocs.pm/hammox/Hammox.html)-style [runtime type checking](`enable_type_checking/0`), add this to your `test_helper.exs` or 
+equivalent:
+  
+      ProtoMock.enable_type_checking()
 
 ## Example
 
@@ -134,7 +140,7 @@ The `ProtoMock` module is a GenServer. Each time we create a `ProtoMock` with `n
 we start a new `ProtoMock` GenServer that is linked to the calling process - typically
 an ExUnit test process. When the test pid dies, the `ProtoMock` GenServer dies with it.
 
-`expect/4` and `stub/3` modify the `ProtoMock` GenServer state to tell the ProtoMock
+`expect/4` and `stub/3` modify the `ProtoMock` GenServer state to tell the `ProtoMock`
 how it will be used and how it should respond. As the `ProtoMock` instance is used to
 dispatch functions of a mocked protocol, it records each function invocation.
 `verify!/1` compares the function invocations to the expectations defined via
@@ -158,6 +164,12 @@ Some differences worth noting:
   expectations/stubs will be flagged by the compiler.
 * `stub_with` and `verify_on_exit` are not meaningful when using ProtoMock, and they
   are not implemented.
+
+## Runtime type checking
+
+ProtoMock supports runtime type checking of mocked functions, via code adopted from [Hammox](https://hexdocs.pm/hammox/Hammox.html).
+Type checking is disabled by default. It can be enabled via `enable_type_checking/0`.
+See `enable_type_checking/0` for details on how type checking works.
 
 ## Goals and philosophy
 

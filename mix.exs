@@ -50,7 +50,8 @@ defmodule ProtoMock.MixProject do
       canonical: "http://hexdocs.pm/protomock",
       extras: ["README.md"],
       main: "ProtoMock",
-      source_ref: "v#{@version}"
+      source_ref: "v#{@version}",
+      skip_undefined_reference_warnings_on: ["ProtoMock.enable_type_checking/0"]
     ]
   end
 
@@ -59,9 +60,7 @@ defmodule ProtoMock.MixProject do
       files: ~w(mix.exs README.md lib),
       licenses: ["MIT"],
       links: %{
-        "GitHub" => @github_page,
-        "marcdel.com" => "https://www.marcdel.com",
-        "OpenTelemetry Erlang SDK" => "https://github.com/open-telemetry/opentelemetry-erlang"
+        "GitHub" => @github_page
       },
       maintainers: ["JB Steadman"]
     ]
