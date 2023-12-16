@@ -1,7 +1,7 @@
 defmodule ProtoMock.MixProject do
   use Mix.Project
 
-  @version "0.5.0"
+  @version "1.0.0"
   @github_page "https://github.com/jbsf2/protomock"
 
   def project do
@@ -11,12 +11,13 @@ defmodule ProtoMock.MixProject do
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      # elixirc_options: [warnings_as_errors: true],
+      elixirc_options: [warnings_as_errors: true],
       elixirc_paths: elixirc_paths(Mix.env()),
       consolidate_protocols: Mix.env() != :test,
 
       # Docs
       name: "ProtoMock",
+      description: "A library for mocking Elixir protocols",
       homepage_url: @github_page,
       source_url: "https://github.com/jbsf2/protomock",
       docs: docs(),
@@ -24,11 +25,8 @@ defmodule ProtoMock.MixProject do
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
-  def application do
-    [
-      extra_applications: [:logger]
-    ]
+  def application() do
+    []
   end
 
   # ensure test/support is compiled

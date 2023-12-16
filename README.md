@@ -7,7 +7,7 @@ ProtoMock is a library for mocking Elixir protocols.
 
 ## Motivation / use case
 
-ProtoMock was built to support using protocols, rather than behaviours and/or plain
+ProtoMock was built to support using protocols, rather than behaviours or plain
 modules, for modeling and accessing external APIs. When external APIs are modeled with
 protocols, ProtoMock can provide mocking capabilities.
 
@@ -16,7 +16,7 @@ Modeling external APIs with protocols provides these benefits:
 * API transparency
 * IDE navigability
 * Compiler / dialyzer error detection
-* Flexible options for mocking (for example using fake objects for some tests, instead of a mocking library)
+* Flexible options for mocking (for example using custom fake objects for some tests, instead of a mocking library)
 
 It is not expected that ProtoMock would be useful for more traditional protocol use
 cases, wherein protocols such as `Enumerable` provide a common interface for operating on
@@ -30,7 +30,7 @@ Add `protomock` to your list of dependencies in `mix.exs`:
     def deps do
       [
         # ...
-        {:protomock, "~> 0.2.0", only: :test}
+        {:protomock, "~> 1.0.0", only: :test}
       ]
     end
 
@@ -44,10 +44,10 @@ disable [protocol consolidation](https://hexdocs.pm/elixir/1.15.6/Protocol.html#
       ]
     end
 
-To enable [Hammox](https://hexdocs.pm/hammox/Hammox.html)-style [runtime type checking](`enable_type_checking/0`), add this to your `test_helper.exs` or 
+<!-- To enable [Hammox](https://hexdocs.pm/hammox/Hammox.html)-style [runtime type checking](`enable_type_checking/0`), add this to your `test_helper.exs` or 
 equivalent:
   
-      ProtoMock.enable_type_checking()
+      ProtoMock.enable_type_checking() -->
 
 ## Example
 
@@ -148,7 +148,7 @@ dispatch functions of a mocked protocol, it records each function invocation.
 
 ## Comparison to [Mox](https://hexdocs.pm/mox/Mox.html)
 
-In order to feel familiar to developers, the ProtoMock API was modeled after the Mox API.
+In order to feel familiar to developers, the ProtoMock API was modeled after the [Mox API](https://hexdocs.pm/mox/Mox.html).
 
 Some differences worth noting:
 
@@ -165,20 +165,39 @@ Some differences worth noting:
 * `stub_with` and `verify_on_exit` are not meaningful when using ProtoMock, and they
   are not implemented.
 
-## Runtime type checking
+<!-- ## Runtime type checking
 
 ProtoMock supports runtime type checking of mocked functions, via code adopted from [Hammox](https://hexdocs.pm/hammox/Hammox.html).
 Type checking is disabled by default. It can be enabled via `enable_type_checking/0`.
-See `enable_type_checking/0` for details on how type checking works.
+See `enable_type_checking/0` for details on how type checking works. -->
 
 ## Goals and philosophy
 
-ProtoMock aims to support and enable the notion that each test should be its own
-little parallel universe, without any modifiable state shared between tests. It
-intentionally avoids practices common in mocking libraries such as setting/resetting
-Application environment variables. Such practices create potential collisions between
-tests that must be avoided with `async: false`. ProtoMock believes `async` should
-always be `true`!
+ProtoMock supports the idea that each test should be its own little parallel universe,
+without any modifiable state shared between tests. It avoids practices common in mocking 
+libraries such as setting/resetting `Application` environment variables. Such practices 
+create potential collisions between tests that must be avoided with `async: false`. 
+ProtoMock believes `async` should always be `true`!
 
-ProtoMock aims to provide an easy-on-the-eyes, function-oriented API that doesn't
-rely on macros and doesn't require wrapping test code in closures.
+ProtoMock aims to provide an easy-on-the-eyes, function-oriented API that doesn't rely on 
+macros and doesn't require wrapping test code in closures.
+
+In alignment with José Valim's ["mocks as nouns"](https://blog.plataformatec.com.br/2015/10/mocks-and-explicit-contracts/) suggestion,
+ProtoMock takes an approach to mocking that is centered on data structures. Good things happen
+when we customize behavior by providing custom data structures at the point of usage, without
+resorting to global variables such as the `Application` environment. 
+
+We improve our code by creating pathways to get our data structures where we need them. The same 
+pathways used for tests can also be used to customize production behavior. We can use the pathways
+to provide test fakes instead of mocks created by a mocking library, which is a much better way 
+to mock in many situations. 
+
+Protocol implementations are one form of such data structures. Libraries such as [Tesla](https://hexdocs.pm/tesla/Tesla.html) 
+and [Req](https://hexdocs.pm/req/readme.html) provide built-in mocking capabilities via 
+application-specific data structures - Tesla through custom [adapters](https://hexdocs.pm/tesla/Tesla.Client.html#t:t/0) 
+and Req through [fake request adapters](https://hexdocs.pm/req/Req.Request.html#module-adapter). 
+When libraries provide such hooks, we might decide we wouldn't benefit from using a protocol to 
+model/mock a given external service. What's important is that we mock using data structures 
+(rather than modules or fancy runtime tricks), and use them locally (not globally). 
+
+ProtoMock is often spotted muttering *"mock locally, with nouns"* over and over again.
