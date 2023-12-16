@@ -27,22 +27,26 @@ therefore ProtoMock has no role.
 
 Add `protomock` to your list of dependencies in `mix.exs`:
 
+```elixir
     def deps do
       [
         # ...
         {:protomock, "~> 1.0.0", only: :test}
       ]
     end
+```
 
 Because ProtoMock generates implementations of the protocols that it mocks, we need to
 disable [protocol consolidation](https://hexdocs.pm/elixir/1.15.6/Protocol.html#module-consolidation) for the `:test` environment in `mix.exs`:
 
+```elixir
     def project do
       [
         # ...
         consolidate_protocols: Mix.env() != :test
       ]
     end
+```
 
 <!-- To enable [Hammox](https://hexdocs.pm/hammox/Hammox.html)-style [runtime type checking](`enable_type_checking/0`), add this to your `test_helper.exs` or 
 equivalent:
@@ -56,6 +60,7 @@ imagine that we have an app that displays the weather. To retrieve weather data,
 we use an external weather API called AcmeWeather, and we model the API with our own
 protocol:
 
+```elixir
     defprotocol MyApp.WeatherAPI do
       @type lat_long :: {float(), float()}
       @type api_result :: {:ok, float()} | {:error, String.t()}
@@ -66,10 +71,12 @@ protocol:
       @spec humidity(t(), lat_long()) :: api_result()
       def humidity(weather_api, lat_long)
     end
+```
 
 We create a "real" implementation of `WeatherAPI` that calls out to the
 AcmeWeather API client:
 
+```elixir
     defimpl MyApp.WeatherAPI, for: AcmeWeather.ApiConfig do
       def temperature(api_config, {lat, long}) do
         AcmeWeather.Client.get_temperature(lat, long, api_config)
@@ -79,12 +86,14 @@ AcmeWeather API client:
         AcmeWeather.Client.get_humidity(lat, long, api_config)
       end
     end
+```
 
 For testing, however, we want to mock the service.
 
 Continuing with the [Mox example](https://hexdocs.pm/mox/Mox.html#module-example),
 imagine that our application code looks like:
 
+```elixir
     defmodule MyApp.HumanizedWeather do
       alias MyApp.WeatherAPI
 
@@ -98,9 +107,11 @@ imagine that our application code looks like:
         "Current humidity is #{humidity}%"
       end
     end
+```
 
 We can test `HumanizedWeather` by mocking `WeatherAPI` with ProtoMock:
 
+```elixir
     defmodule MyApp.HumanizedWeatherTest do
       use ExUnit.Case, async: true
 
@@ -127,7 +138,7 @@ We can test `HumanizedWeather` by mocking `WeatherAPI` with ProtoMock:
               "Current humidity is 60%"
       end
     end
-
+```
 In the first test, we use `expect/4` to declare that `WeatherAPI.temperature/2` should be called
 exactly once. The expectation is verified via `verify!/1`.
 
