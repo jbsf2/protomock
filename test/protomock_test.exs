@@ -349,7 +349,7 @@ defmodule ProtoMockTest do
     test "raises when the implementation returns the wrong type" do
       assert_raise RuntimeError, fn ->
         protomock =
-          ProtoMock.new(Calculator, check_runtime_types: true)
+          ProtoMock.new(Calculator, nil, check_runtime_types: true)
           |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :bad_return end)
 
         Calculator.add(protomock, 1, 2)
@@ -359,7 +359,7 @@ defmodule ProtoMockTest do
     test "raises when an argument has an invalid type" do
       assert_raise RuntimeError, fn ->
         protomock =
-          ProtoMock.new(Calculator, check_runtime_types: true)
+          ProtoMock.new(Calculator, nil, check_runtime_types: true)
           |> ProtoMock.stub(&Calculator.add/3, fn x, _y -> x end)
 
         Calculator.add(protomock, 1, :invalid_argument)
@@ -368,7 +368,7 @@ defmodule ProtoMockTest do
 
     test "does not raise when mocked function does not have a typespec" do
       protomock =
-        ProtoMock.new(Calculator, check_runtime_types: true)
+        ProtoMock.new(Calculator, nil, check_runtime_types: true)
         |> ProtoMock.stub(&Calculator.sqrt/2, fn _x -> "not a float" end)
 
       assert Calculator.sqrt(protomock, :not_a_float) == "not a float"
@@ -376,7 +376,7 @@ defmodule ProtoMockTest do
 
     test "does not raise when the mocked protocol has no typespecs" do
       protomock =
-        ProtoMock.new(NoTypespecs, check_runtime_types: true)
+        ProtoMock.new(NoTypespecs, nil, check_runtime_types: true)
         |> ProtoMock.stub(&NoTypespecs.do_something/2, fn x -> x end)
 
       assert NoTypespecs.do_something(protomock, 3) == 3
@@ -414,6 +414,94 @@ defmodule ProtoMockTest do
 
       assert_raise ArgumentError, fn ->
         ProtoMock.expect(protomock, &OtherProtocol.do_something/1, fn -> nil end)
+      end
+    end
+  end
+
+  describe "delegation" do
+    test "when the delegate does not implement the protocol, it raises an error" do
+      assert_raise ArgumentError, ~r/must implement/, fn ->
+        ProtoMock.new(Calculator, :not_a_calculator)
+      end
+    end
+
+    test "when the delegate is nil, it raises an error" do
+      assert_raise ArgumentError, ~r/must not be nil/, fn ->
+        ProtoMock.new(Calculator, nil)
+      end
+    end
+
+    test "when a delegate is provided, it delgates function calls by default" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+
+      assert Calculator.add(protomock, 1, 2) == 3
+      assert Calculator.mult(protomock, 1, 2) == 2
+      assert Calculator.sqrt(protomock, 4) == 2
+    end
+
+    test "when a function is stubbed, the stub is called instead of the delegate" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :not_delegated end)
+
+      assert Calculator.add(protomock, 1, 2) == :not_delegated
+      assert Calculator.mult(protomock, 1, 2) == 2
+      assert Calculator.sqrt(protomock, 4) == 2
+    end
+
+    test "when expectations are set, the delegate is not called" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> :not_delegated end)
+
+      assert Calculator.add(protomock, 1, 2) == :not_delegated
+      assert Calculator.mult(protomock, 1, 2) == 2
+      assert Calculator.sqrt(protomock, 4) == 2
+    end
+
+    test "when expectations are met, verify! returns :ok" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> :not_delegated end)
+
+      assert Calculator.add(protomock, 1, 2) == :not_delegated
+      assert ProtoMock.verify!(protomock) == :ok
+    end
+
+    test "when expectations are not met, verify! raises" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> :not_delegated end)
+
+        msg = "expected Calculator.add/3 to be called once but it was called 0 times"
+
+        assert_raise VerificationError, msg, fn ->
+          ProtoMock.verify!(protomock)
+        end
+    end
+
+    test "after expectations are met, the stub is called if there is one" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> :expected end)
+        |> ProtoMock.stub(&Calculator.add/3, fn _x, _y -> :stubbed end)
+
+      assert Calculator.add(protomock, 1, 2) == :expected
+      assert Calculator.add(protomock, 1, 2) == :stubbed
+    end
+
+    test "if expectations are exceeded, it raises an error" do
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.expect(&Calculator.add/3, fn _x, _y -> :not_delegated end)
+
+      Calculator.add(protomock, 1, 2)
+
+      msg = "expected Calculator.add/3 to be called once but it was called twice"
+
+      assert_raise ProtoMock.UnexpectedCallError, msg, fn ->
+        Calculator.add(protomock, 1, 2)
       end
     end
   end

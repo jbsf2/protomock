@@ -57,6 +57,7 @@ defmodule ProtoMock do
 
   @typep state :: %{
            mocked_protocol: module(),
+           delegate: struct(),
            stubs: %{function() => function()},
            expectations: [expectation()],
            invocations: [invocation()],
@@ -77,7 +78,7 @@ defmodule ProtoMock do
   @doc false
   @spec new() :: t()
   def new() do
-    new(nil, [])
+    new(nil, nil, [])
   end
 
   @doc """
@@ -99,19 +100,84 @@ defmodule ProtoMock do
   """
   @spec new(module()) :: t()
   def new(protocol) do
-    new(protocol, [])
+    new(protocol, nil, [])
+  end
+
+  @doc """
+  Creates a new instance of `ProtoMock` that mocks the given `protocol` and delegates
+  non-customized function calls to `delegate`.
+
+  `delegate` must be a data structure that implements `protocol`. By default, the `ProtoMock`
+  instance returned by `new/2` will delegate any function calls to `delegate`. Delegation
+  can be "overridden" on a per-function basis by calling `expect/4` or `stub/3` for any
+  function of interest.
+
+  For example, consider the following `Calculator` protocol:
+
+      defprotocol Calculator do
+        def add(calculator, x, y)
+
+        def mult(calculator, x, y)
+
+        def sqrt(calulator, x)
+      end
+
+  And suppose we have an implentation called `RealCalculator` that implements the protocol
+  functions in the expected manner. We can create a `ProtoMock` instance stubs out one
+  `Calculator` function while delegating the others to an instance of `RealCalculator`:
+
+      protomock =
+        ProtoMock.new(Calculator, RealCalculator.new())
+        |> ProtoMock.stub(&Calculator.add/3, fn _calculator, _x, _y -> :overridden end)
+
+      Calculator.add(protomock, 1, 2)  # => :overridden
+      Calculator.mult(protomock, 1, 2) # => 2
+      Calculator.sqrt(protomock, 4)    # => 2.0
+
+  When a function is overriden using `expect/4`, ProtoMock will raise an error if the
+  function is called more times than expected. If instead it's desired that the function
+  should be delegated after expectations are met, `stub/3` can be used in conjunction
+  with `expect/4` to establish the delegation:
+
+      real_calculator = RealCalculator.new()
+
+      protomock =
+        ProtoMock.new(Calculator, real_calculator)
+        |> ProtoMock.expect(&Calculator.add/3, 1, fn _calculator, _x, _y -> :overridden end)
+        |> ProtoMock.stub(&Calculator.add/3, fn _calculator, x, y ->
+          Calculator.add(real_calculator, x, y)
+        end)
+
+      Calculator.add(protomock, 1, 2)  # => :overridden
+      Calculator.add(protomock, 1, 2)  # => 3
+  """
+  @spec new(module(), struct()) :: t()
+  def new(protocol, delegate) do
+
+    if delegate == nil do
+      raise ArgumentError, "delegate must not be nil"
+    end
+
+    new(protocol, delegate, [])
   end
 
   @doc false
   # use of opts is "private" and intended only for ProtoMockTest
-  @spec new(module(), keyword()) :: t()
-  def new(protocol, opts) do
+  @spec new(module(), struct() | nil,  keyword()) :: t()
+  def new(protocol, delegate, opts) do
     :ok = ensure_protomock_started()
 
     if protocol != nil, do: :ok = create_impl(protocol)
 
+    if delegate != nil && protocol.impl_for(delegate) == nil do
+      raise ArgumentError, """
+      The provided delegate must implement the #{inspect(protocol)} protocol, but it does not.
+      """
+    end
+
     state = %{
       mocked_protocol: protocol,
+      delegate: delegate,
       stubs: %{},
       expectations: [],
       invocations: [],
@@ -291,7 +357,7 @@ defmodule ProtoMock do
       {UnexpectedCallError, args} ->
         raise UnexpectedCallError, args
 
-      ref ->
+      %{protomock_ref: ref} ->
         receive do
           {^ref, {:protomock_error, e}} ->
             raise e
@@ -299,6 +365,9 @@ defmodule ProtoMock do
           {^ref, return_value} ->
             return_value
         end
+
+      return_value ->
+        return_value
     end
   end
 
@@ -360,14 +429,21 @@ defmodule ProtoMock do
     expected_count = expected_count(state, mocked_function)
     actual_count = actual_count(updated_invocations, mocked_function)
 
-    case exceeded_expectations?(expected_count, actual_count) do
-      true ->
+    cond do
+      delegated?(state, mocked_function) ->
+        function_name = bare_function_name(mocked_function)
+        function_args = [state.delegate] ++ args
+        return_value = Kernel.apply(state.mocked_protocol, function_name, function_args)
+
+        {:reply, return_value, state}
+
+      exceeded_expectations?(expected_count, actual_count) ->
         updated_state = %{state | invocations: updated_invocations}
         error_args = {mocked_function, expected_count, actual_count}
 
         {:reply, {UnexpectedCallError, error_args}, updated_state}
 
-      false ->
+      true ->
         {impl, updated_expectations} = next_impl(state, mocked_function)
         ref = make_ref()
 
@@ -399,8 +475,8 @@ defmodule ProtoMock do
             expectations: updated_expectations
         }
 
-        {:reply, ref, updated_state}
-    end
+        {:reply, %{protomock_ref: ref}, updated_state}
+      end
   end
 
   @impl true
@@ -471,6 +547,26 @@ defmodule ProtoMock do
     state.stubs |> Map.get(mocked_function)
   end
 
+  @spec delegated?(state(), function()) :: boolean()
+  defp delegated?(state, function) do
+    state.delegate != nil
+    && !has_stubs?(state, function)
+    && !has_expectations?(state, function)
+  end
+
+  @spec has_stubs?(state(), function()) :: boolean
+  def has_stubs?(state, function) do
+    Map.get(state.stubs, function) != nil
+  end
+
+  @spec has_expectations?(state(), function()) :: boolean
+  def has_expectations?(state, function) do
+    state.expectations
+    |> Enum.any?(fn expectation ->
+      expectation.mocked_function == function
+    end)
+  end
+
   @spec exceeded_expectations?(expected_count(), non_neg_integer()) :: boolean()
   defp exceeded_expectations?(expected_count, actual_count) do
     expected_count != :unlimited && expected_count < actual_count
@@ -526,6 +622,11 @@ defmodule ProtoMock do
   @spec function_name(function()) :: String.t()
   defp function_name(function) do
     inspect(function) |> String.replace_leading("&", "")
+  end
+
+  @spec bare_function_name(function()) :: atom()
+  defp bare_function_name(function) do
+    Function.info(function)[:name]
   end
 
   @doc false
