@@ -134,10 +134,19 @@ defmodule ProtoMock do
       Calculator.mult(protomock, 1, 2) # => 2
       Calculator.sqrt(protomock, 4)    # => 2.0
 
+  When delegating, `expect/4` and `verify/1` work together as they normally do - `verify/1`
+  will raise if expectations are not met:
+
+      protomock =
+        ProtoMock.new(Calculator, real_calculator)
+        |> ProtoMock.expect(&Calculator.add/3, 1, fn _calculator, _x, _y -> :overridden end)
+
+      ProtoMock.verify!(protomock) # raises VerificationError
+
   When a function is overriden using `expect/4`, ProtoMock will raise an error if the
-  function is called more times than expected. If instead it's desired that the function
-  should be delegated after expectations are met, `stub/3` can be used in conjunction
-  with `expect/4` to establish the delegation:
+  function is called more times than expected, as in the non-delegated case. If instead
+  it's desired that the function should be delegated after expectations are met, `stub/3`
+  can be used in conjunction with `expect/4` to establish the delegation:
 
       real_calculator = RealCalculator.new()
 
