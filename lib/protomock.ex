@@ -160,7 +160,7 @@ defmodule ProtoMock do
       Calculator.add(protomock, 1, 2)  # => :overridden
       Calculator.add(protomock, 1, 2)  # => 3
   """
-  @spec new(module(), struct()) :: t()
+  @spec new(module(), any()) :: t()
   def new(protocol, delegate) do
 
     if delegate == nil do
