@@ -145,6 +145,12 @@ exactly once. The expectation is verified via `verify!/1`.
 In the second test, we use `stub/3`, which does not set expectations on the number of times
 the mocked function should be called, therefore we do not need to verify.
 
+## Delegation
+
+`new/2` can be used to create a `ProtoMock` instance that delegates to another implementation 
+of the protocol of interest. By default, the `ProtoMock` instance will proxy any function 
+invocations to the delegate. Behavior can be overridden & customized on a per-function basis.
+
 ## Under the hood: a GenServer
 
 The `ProtoMock` module is a GenServer. Each time we create a `ProtoMock` with `new/1`,

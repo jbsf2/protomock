@@ -134,7 +134,7 @@ defmodule ProtoMock do
       Calculator.mult(protomock, 1, 2) # => 2
       Calculator.sqrt(protomock, 4)    # => 2.0
 
-  When delegating, `expect/4` and `verify/1` work together as they normally do - `verify/1`
+  When delegating, `expect/4` and `verify!/1` work together as they normally do - `verify!/1`
   will raise if expectations are not met:
 
       protomock =
@@ -381,7 +381,8 @@ defmodule ProtoMock do
   end
 
   @doc """
-  Verifies that all expectations have been fulfilled.
+  Verifies that all expectations have been fulfilled. Raises a `VerificationError` if expectations
+  have not been fulfilled.
   """
   @spec verify!(t()) :: :ok
   def verify!(protomock) do
