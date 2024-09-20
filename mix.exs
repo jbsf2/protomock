@@ -1,7 +1,7 @@
 defmodule ProtoMock.MixProject do
   use Mix.Project
 
-  @version "1.1.1"
+  @version "1.1.2"
   @github_page "https://github.com/jbsf2/protomock"
 
   def project do

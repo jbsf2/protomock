@@ -565,12 +565,12 @@ defmodule ProtoMock do
   end
 
   @spec has_stubs?(state(), function()) :: boolean
-  def has_stubs?(state, function) do
+  defp has_stubs?(state, function) do
     Map.get(state.stubs, function) != nil
   end
 
   @spec has_expectations?(state(), function()) :: boolean
-  def has_expectations?(state, function) do
+  defp has_expectations?(state, function) do
     state.expectations
     |> Enum.any?(fn expectation ->
       expectation.mocked_function == function
